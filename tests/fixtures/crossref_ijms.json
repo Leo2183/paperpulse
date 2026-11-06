@@ -1,0 +1,48 @@
+{
+  "status": "ok",
+  "message": {
+    "total-results": 5,
+    "items": [
+      {
+        "DOI": "10.1016/j.ijms.2026.11.001",
+        "title": ["Tandem MS of plant alkaloids"],
+        "container-title": ["International Journal of Mass Spectrometry"],
+        "issued": {"date-parts": [[2026, 11, 2]]},
+        "abstract": "<jats:p>Secondary metabolites studied by <jats:italic>MS/MS</jats:italic> &amp; imaging.</jats:p>",
+        "author": [
+          {"given": "Alice", "family": "A"},
+          {"given": "Bob", "family": "B"}
+        ],
+        "type": "journal-article"
+      },
+      {
+        "DOI": "10.1016/j.ijms.2026.11.002",
+        "title": ["Ion optics study"],
+        "container-title": ["International Journal of Mass Spectrometry"],
+        "issued": {"date-parts": [[2026, 11, 3]]},
+        "type": "journal-article"
+      },
+      {
+        "DOI": "10.1016/j.ijms.2021.116774",
+        "title": ["Graphical abstract Contents continued"],
+        "container-title": ["International Journal of Mass Spectrometry"],
+        "issued": {"date-parts": [[2021, 5, 1]]},
+        "type": "journal-article"
+      },
+      {
+        "DOI": "10.1016/j.ijms.2014.02.011",
+        "title": ["Electron impact excitation from the initially excited cadmium atom"],
+        "container-title": ["International Journal of Mass Spectrometry"],
+        "issued": {"date-parts": [[2014, 2, 1]]},
+        "type": "journal-article"
+      },
+      {
+        "DOI": "10.1016/j.ijms.2026.11.005",
+        "title": ["Publisher's Note"],
+        "container-title": ["International Journal of Mass Spectrometry"],
+        "issued": {"date-parts": [[2026, 11, 4]]},
+        "type": "journal-article"
+      }
+    ]
+  }
+}
