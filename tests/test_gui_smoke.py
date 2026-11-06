@@ -85,6 +85,16 @@ def test_mark_view_exports_todo(win, tmp_path):
 
 
 def test_queries_view_group3_refine_guard(win):
+    from sm_scan import queries as queries_mod
+    from sm_scan import store as store_mod
+
+    store_mod.seed_groups(win.conn, [
+        dict(name=g.name, enabled=1,
+             terms=[{"phrase": t.phrase, "scope": t.scope} for t in g.terms],
+             refine=[{"phrase": t.phrase, "scope": t.scope} for t in g.refine])
+        for g in queries_mod.DEFAULT_GROUPS
+    ])
+    win.queries_view._reload_groups()
     qv = win.queries_view
     qv.group_list.setCurrentRow(2)  # 组3 产物注释
     assert qv.g_name.text() == "产物注释"
