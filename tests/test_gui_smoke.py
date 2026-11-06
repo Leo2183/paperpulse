@@ -69,3 +69,16 @@ def test_mark_starred_updates_db_and_view(win):
     lv.c_starred.setChecked(True)
     assert lv.table.rowCount() == 1
     lv.c_starred.setChecked(False)
+
+
+def test_mark_view_exports_todo(win, tmp_path):
+    from datetime import date
+
+    from sm_scan import report
+
+    win.conn.execute("UPDATE papers SET to_read=1 WHERE id='10.1/a'")
+    win.conn.commit()
+    path = report.export_todo(win.conn, date(2026, 11, 6))
+    text = path.read_text(encoding="utf-8")
+    assert "Plant MALDI imaging" in text
+    assert "Nature pick" not in text

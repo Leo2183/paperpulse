@@ -96,3 +96,16 @@ def test_tiering_uses_json_each_not_like(filled, conn):
     # 组名 "组x" 不应因 LIKE 匹配到任何档,归三档
     text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
     assert "三、其他(1)" in text
+
+
+def test_export_todo_snapshot(conn):
+    store.upsert_paper(conn, _paper("10.2/a", "Todo one", to_read=1,
+                                    llm_digest="导读一。"))
+    store.upsert_paper(conn, _paper("10.2/b", "Todo two", to_read=1))
+    store.upsert_paper(conn, _paper("10.2/c", "Not todo"))
+    path = report.export_todo(conn)
+    text = path.read_text(encoding="utf-8")
+    assert "Todo one" in text and "Todo two" in text and "Not todo" not in text
+    assert "https://doi.org/10.2/a" in text
+    assert "导读一。" in text
+    assert path.name.startswith("todo-reading-")

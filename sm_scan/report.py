@@ -126,3 +126,19 @@ def generate(conn, for_date: date) -> Path:
     path = config.reports_dir() / f"{for_date.isoformat()}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def export_todo(conn, for_date: date | None = None) -> Path:
+    """待精读清单(标题+DOI+导读),衔接精读工作流(spec §9 视图2)。"""
+    for_date = for_date or date.today()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT title, url, doi, llm_digest FROM papers WHERE to_read=1"
+        " ORDER BY first_seen DESC")]
+    lines = [f"# 待精读清单 {for_date.isoformat()}({len(rows)} 篇)", ""]
+    for r in rows:
+        digest = f" — {r['llm_digest']}" if r["llm_digest"] else ""
+        lines.append(f"- [{r['title']}]({r['url'] or r['doi'] or ''}){digest}")
+    lines.append("")
+    path = config.reports_dir() / f"todo-reading-{for_date.isoformat()}.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
