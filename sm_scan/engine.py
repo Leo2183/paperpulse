@@ -98,6 +98,12 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
     退出码:0=ok,2=partial,3=failed(spec §11)。
     """
     own = conn is None
+    if not dry_run:
+        from . import task as task_mod
+
+        if not task_mod.acquire_lock():
+            log.warning("lock held; scan skipped")
+            return 0
     conn = conn or store.connect()
     store.init_db(conn)
     if not conn.execute("SELECT COUNT(*) FROM term_groups").fetchone()[0]:

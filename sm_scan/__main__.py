@@ -32,6 +32,9 @@ def main(argv=None) -> int:
     rp = sub.add_parser("report", help="regenerate a daily report")
     rp.add_argument("--date", default=None, help="YYYY-MM-DD")
 
+    tk = sub.add_parser("task", help="manage scheduled task")
+    tk.add_argument("action", choices=["register", "remove", "status"])
+
     args = parser.parse_args(argv)
     if args.cmd == "scan":
         setup_logging()
@@ -51,6 +54,20 @@ def main(argv=None) -> int:
         path = _report.generate(conn, d)
         print(path)
         return 0
+
+    if args.cmd == "task":
+        from . import task as _task
+
+        if args.action == "register":
+            ok, msg = _task.register()
+        elif args.action == "remove":
+            ok, msg = _task.remove()
+        else:
+            info = _task.status()
+            print(("已注册" if info["registered"] else "未注册"), info["raw"])
+            return 0
+        print(("OK: " if ok else "FAIL: ") + msg)
+        return 0 if ok else 1
 
     parser.print_help()
     return 0
