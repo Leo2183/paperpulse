@@ -1,0 +1,208 @@
+"""视图4:扫描中心 —— 立即扫描、任务计划、历史报告、批量导读(spec §9)。"""
+
+import logging
+from datetime import date, timedelta
+from pathlib import Path
+
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QListWidget, QMessageBox, QProgressBar,
+    QPushButton, QSpinBox, QTextEdit, QVBoxLayout, QWidget,
+)
+
+from .. import config, engine, llm, report, store, task
+from .queries_view import QueriesView  # noqa: F401  (类型参照)
+
+
+class _QtLogHandler(logging.Handler):
+    def __init__(self, emit_fn):
+        super().__init__()
+        self._emit = emit_fn
+        self.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+
+    def emit(self, record):
+        try:
+            self._emit(self.format(record))
+        except RuntimeError:  # 组件已销毁
+            pass
+
+
+class ScanWorker(QThread):
+    log_line = Signal(str)
+    finished_code = Signal(int)
+
+    def run(self):
+        handler = _QtLogHandler(self.log_line.emit)
+        root = logging.getLogger()
+        root.addHandler(handler)
+        try:
+            rc = engine.run_scan()
+            try:
+                report.generate(store.connect(), date.today())
+            except Exception:
+                self.log_line.emit("日报生成失败(可稍后 sm_scan report 重试)")
+        finally:
+            root.removeHandler(handler)
+        self.finished_code.emit(rc)
+
+
+class DigestWorker(QThread):
+    progress = Signal(int, int)
+    done = Signal(int, int)
+
+    def __init__(self, conn, papers, cfg):
+        super().__init__()
+        self.conn, self.papers, self.cfg = conn, papers, cfg
+
+    def run(self):
+        total = len(self.papers)
+        done_count = 0
+
+        def on_progress(_):
+            nonlocal done_count
+            done_count += 1
+            self.progress.emit(done_count, total)
+
+        ok, fail = llm.batch_digest(
+            self.conn, self.papers, self.cfg, progress=on_progress)
+        self.done.emit(ok, fail)
+
+
+class ScanView(QWidget):
+    def __init__(self, conn, refresh_parent=None, llm_cfg_fn=None):
+        super().__init__()
+        self.conn = conn
+        self.refresh_parent = refresh_parent
+        self.llm_cfg_fn = llm_cfg_fn
+        self._scan_worker = None
+        self._digest_worker = None
+
+        self.btn_scan = QPushButton("立即扫描")
+        self.btn_scan.clicked.connect(self._start_scan)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)  # 忙碌态
+        self.progress.hide()
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+
+        self.btn_register = QPushButton("注册定时任务(每日 09:00)")
+        self.btn_register.clicked.connect(lambda: self._task_action("register"))
+        self.btn_remove = QPushButton("删除定时任务")
+        self.btn_remove.clicked.connect(lambda: self._task_action("remove"))
+        self.task_status = QLabel()
+
+        self.spin_days = QSpinBox()
+        self.spin_days.setRange(1, 30)
+        self.spin_days.setValue(3)
+        self.btn_digest = QPushButton("批量生成中文导读")
+        self.btn_digest.clicked.connect(self._start_digest)
+        self.digest_status = QLabel("")
+
+        self.reports = QListWidget()
+        self.reports.itemDoubleClicked.connect(self._open_report)
+
+        top = QHBoxLayout()
+        top.addWidget(self.btn_scan)
+        top.addWidget(self.progress, stretch=1)
+        mid = QHBoxLayout()
+        mid.addWidget(QLabel("批量导读:最新"))
+        mid.addWidget(self.spin_days)
+        mid.addWidget(QLabel("天未读"))
+        mid.addWidget(self.btn_digest)
+        mid.addWidget(self.digest_status, stretch=1)
+        task_bar = QHBoxLayout()
+        task_bar.addWidget(self.btn_register)
+        task_bar.addWidget(self.btn_remove)
+        task_bar.addWidget(self.task_status, stretch=1)
+
+        v = QVBoxLayout(self)
+        v.addLayout(top)
+        v.addWidget(self.log)
+        v.addLayout(mid)
+        v.addLayout(task_bar)
+        v.addWidget(QLabel("历史报告(双击打开):"))
+        v.addWidget(self.reports)
+        self._reload_reports()
+        self._reload_task_status()
+
+    # ------------------------------------------------------------- 扫描
+
+    def _start_scan(self) -> None:
+        if self._scan_worker and self._scan_worker.isRunning():
+            return
+        self.btn_scan.setEnabled(False)
+        self.progress.show()
+        self.log.append("扫描启动…")
+        self._scan_worker = ScanWorker()
+        self._scan_worker.log_line.connect(self.log.append)
+        self._scan_worker.finished_code.connect(self._scan_done)
+        self._scan_worker.start()
+
+    def _scan_done(self, rc: int) -> None:
+        self.progress.hide()
+        self.btn_scan.setEnabled(True)
+        self.log.append(f"扫描结束,退出码 {rc}(0=ok 2=partial 3=failed)")
+        self._reload_reports()
+        if self.refresh_parent:
+            self.refresh_parent()
+
+    # ------------------------------------------------------------- 任务计划
+
+    def _task_action(self, action: str) -> None:
+        ok, msg = task.register() if action == "register" else task.remove()
+        QMessageBox.information(self, "任务计划", ("OK: " if ok else "FAIL: ") + msg)
+        self._reload_task_status()
+
+    def _reload_task_status(self) -> None:
+        info = task.status()
+        self.task_status.setText(
+            "定时任务:已注册(sm-scan-daily,每日 09:00,仅登录时运行)"
+            if info["registered"] else "定时任务:未注册")
+
+    # ------------------------------------------------------------- 导读
+
+    def _start_digest(self) -> None:
+        if self._digest_worker and self._digest_worker.isRunning():
+            return
+        cfg = self.llm_cfg_fn() if self.llm_cfg_fn else None
+        if not cfg:
+            QMessageBox.warning(
+                self, "LLM 未配置",
+                "请先在「检索式配置 → 源与 LLM」中填写 base_url / model / key。")
+            return
+        n_days = self.spin_days.value()
+        since = (date.today() - timedelta(days=n_days)).isoformat()
+        papers = [dict(r) for r in self.conn.execute(
+            "SELECT id, title, abstract, llm_digest FROM papers"
+            " WHERE status='unread' AND llm_digest IS NULL"
+            " AND abstract IS NOT NULL AND substr(first_seen,1,10)>=?",
+            (since,))]
+        if not papers:
+            self.digest_status.setText("没有符合条件的待导读论文。")
+            return
+        self.btn_digest.setEnabled(False)
+        self._digest_worker = DigestWorker(self.conn, papers, cfg)
+        self._digest_worker.progress.connect(
+            lambda d, t: self.digest_status.setText(f"导读中…{d}/{t}"))
+        self._digest_worker.done.connect(self._digest_done)
+        self._digest_worker.start()
+
+    def _digest_done(self, ok: int, fail: int) -> None:
+        self.btn_digest.setEnabled(True)
+        self.digest_status.setText(f"完成:成功 {ok},失败/跳过 {fail}")
+        if self.refresh_parent:
+            self.refresh_parent()
+
+    # ------------------------------------------------------------- 报告
+
+    def _reload_reports(self) -> None:
+        self.reports.clear()
+        for p in sorted(config.reports_dir().glob("*.md"), reverse=True):
+            self.reports.addItem(p.name)
+
+    def _open_report(self, item) -> None:
+        path: Path = config.reports_dir() / item.text()
+        if path.exists():
+            import os
+
+            os.startfile(str(path))  # noqa: PTH118  系统默认程序打开

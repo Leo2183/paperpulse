@@ -31,18 +31,17 @@ class MainWindow(QMainWindow):
         self.list_view = PaperListView(self.conn, refresh_parent=self.refresh)
         from .mark_view import MarkView
         from .queries_view import QueriesView
+        from .scan_view import ScanView
 
         self.mark_view = MarkView(self.conn, refresh_parent=self.refresh)
         self.queries_view = QueriesView(self.conn, parent_window=self)
-        self.views = [self.list_view, self.mark_view, self.queries_view]
+        self.scan_view = ScanView(
+            self.conn, refresh_parent=self.refresh,
+            llm_cfg_fn=self.queries_view._llm_cfg)
+        self.views = [self.list_view, self.mark_view,
+                      self.queries_view, self.scan_view]
         for v in self.views:
             self.stack.addWidget(v)
-        # 视图4 在后续任务接入
-        for label in NAV_LABELS[3:]:
-            placeholder = QLabel(f"{label}(待接入)")
-            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.views.append(placeholder)
-            self.stack.addWidget(placeholder)
 
         layout = QHBoxLayout()
         layout.addWidget(self.nav)

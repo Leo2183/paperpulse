@@ -107,4 +107,5 @@ def status() -> dict:
         ["schtasks", "/Query", "/TN", TASK_NAME],
         capture_output=True, text=True,
     )
-    return {"registered": r.returncode == 0, "raw": (r.stdout or r.stderr)[:500]}
+    return {"registered": r.returncode == 0,
+            "raw": (r.stdout or r.stderr or "")[:500]}

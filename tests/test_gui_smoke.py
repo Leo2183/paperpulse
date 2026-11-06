@@ -111,3 +111,31 @@ def test_queries_view_group3_refine_guard(win):
     row = win.conn.execute(
         "SELECT refine FROM term_groups WHERE name='产物注释'").fetchone()
     assert json.loads(row["refine"])
+
+
+def test_scan_view_builds_with_defaults(win):
+    sv = win.scan_view
+    assert sv.spin_days.value() == 3  # N 默认 3 天(M8)
+    assert sv.btn_scan.isEnabled()
+
+
+def test_batch_digest_progress_callback(win, monkeypatch):
+    from sm_scan import llm as llm_mod
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(llm_mod.requests, "post", lambda *a, **kw: Resp())
+    seen = []
+    ok, fail = llm_mod.batch_digest(
+        win.conn,
+        [{"id": "10.1/a", "title": "A", "abstract": "x", "llm_digest": None},
+         {"id": "10.1/b", "title": "B", "abstract": "x", "llm_digest": None}],
+        dict(llm_base_url="https://x/v4", llm_model="m", llm_api_key="k"),
+        progress=seen.append,
+    )
+    assert ok == 2 and fail == 0
+    assert seen == [1, 2]

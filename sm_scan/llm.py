@@ -111,23 +111,28 @@ def digest(paper: dict, cfg: dict) -> str:
     ])
 
 
-def batch_digest(conn, papers: list[dict], cfg: dict) -> tuple[int, int]:
-    """批量导读:已有缓存跳过;单篇失败跳过计数不中断。返回 (成功, 失败)。"""
+def batch_digest(conn, papers: list[dict], cfg: dict,
+                 progress=None) -> tuple[int, int]:
+    """批量导读:已有缓存跳过;单篇失败跳过计数不中断。返回 (成功, 失败)。
+
+    progress(processed) 每处理完一篇回调(GUI 进度条)。
+    """
     ok = fail = 0
-    for p in papers:
+    for i, p in enumerate(papers):
         if p.get("llm_digest"):
             continue
         try:
             text = digest(p, cfg)
         except ValueError:
             fail += 1  # 无摘要(Crossref 路由)
-            continue
         except SourceError as e:
             log.error("digest failed for %s: %s", p.get("id"), e)
             fail += 1
-            continue
-        conn.execute(
-            "UPDATE papers SET llm_digest=? WHERE id=?", (text, p["id"]))
-        conn.commit()
-        ok += 1
+        else:
+            conn.execute(
+                "UPDATE papers SET llm_digest=? WHERE id=?", (text, p["id"]))
+            conn.commit()
+            ok += 1
+        if progress:
+            progress(i + 1)
     return ok, fail
