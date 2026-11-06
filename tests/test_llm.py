@@ -91,12 +91,26 @@ def test_batch_digest_skips_cached_and_continues_on_error(conn, monkeypatch):
         {"id": "b", "title": "B", "abstract": "abs", "llm_digest": None},
         {"id": "c", "title": "C", "abstract": "abs", "llm_digest": None},
     ]
+    for p in papers:  # 先入库,batch 的 UPDATE 才有目标
+        _upsert(conn, p)
     ok, fail = llm.batch_digest(conn, papers, CFG)
     assert ok == 1 and fail == 1
     # 缓存篇(a)未调用;b 两轮尝试 + c 一次
     assert len(calls) == 3
     row = conn.execute("SELECT llm_digest FROM papers WHERE id='c'").fetchone()
     assert row["llm_digest"] == "ok"
+
+
+def _upsert(conn, p):
+    from sm_scan import store
+
+    store.upsert_paper(conn, store.Paper(
+        id=p["id"], doi=p["id"], pmcid=None, title=p["title"],
+        authors=None, journal=None, pub_date="2026-11-01",
+        indexed_date=None, source="europepmc", sources=["europepmc"],
+        subscription=None, url=None, abstract=p["abstract"], tags=[],
+        matched_groups=[], status="unread", starred=0, to_read=0,
+        llm_digest=p["llm_digest"], first_seen=None, updated_at=None))
 
 
 @pytest.fixture
