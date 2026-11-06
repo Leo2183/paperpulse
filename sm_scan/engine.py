@@ -1,8 +1,17 @@
-"""扫描引擎(spec §5):本模块先落纯函数;编排见 run_scan(Task 7 起)。"""
+"""扫描引擎(spec §5):纯函数 + 三轨编排 run_scan。"""
 
 import hashlib
+import json
+import logging
 import re
+import time
 from datetime import date, timedelta
+
+from . import queries, store, tags
+from .sources import europepmc
+from .sources.base import SourceError
+
+log = logging.getLogger(__name__)
 
 _DOI_PREFIXES = (
     "https://doi.org/", "http://doi.org/", "doi.org/", "doi:", "info:doi/",
@@ -68,3 +77,97 @@ def dates_ok(pub_date: str | None, window: tuple[date, date]) -> bool:
     except ValueError:
         return True  # 只有年月/年,宽容放行
     return window[0] <= d <= window[1]
+
+
+# ---------------------------------------------------------------- 三轨编排
+
+def last_ok_finished(conn) -> date | None:
+    row = conn.execute(
+        "SELECT finished_at FROM runs WHERE status IN ('ok','partial')"
+        " ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row or not row["finished_at"]:
+        return None
+    return date.fromisoformat(row["finished_at"][:10])
+
+
+def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
+             days: int | None = None) -> int:
+    """三轨扫描(本任务实现主题轨道;订阅/bioRxiv 在 Task 11 接入)。
+
+    退出码:0=ok,2=partial,3=failed(spec §11)。
+    """
+    own = conn is None
+    conn = conn or store.connect()
+    store.init_db(conn)
+    if not conn.execute("SELECT COUNT(*) FROM term_groups").fetchone()[0]:
+        store.seed_groups(conn, [
+            dict(name=g.name, enabled=1,
+                 terms=[{"phrase": t.phrase, "scope": t.scope} for t in g.terms],
+                 refine=[{"phrase": t.phrase, "scope": t.scope} for t in g.refine])
+            for g in queries.DEFAULT_GROUPS
+        ])
+    settings = store.load_settings(conn)
+    groups = [queries.from_row(r) for r in store.load_groups(conn)]
+    groups = [g for g in groups if g.enabled]
+    g3 = next((g for g in groups if "注释" in g.name), None)
+    g3_phrases = [t.phrase for t in g3.terms] if g3 else []
+
+    window = scan_window(
+        last_ok_finished(conn), date.today(),
+        backfill_days=int(days or settings.get("backfill_days", "30")),
+    )
+
+    if dry_run:
+        for g in groups:
+            print(f"[dry-run] {g.name}: {queries.to_europepmc_query(g, *window)}")
+        print(f"[dry-run] window: {window[0]} → {window[1]}")
+        return 0
+
+    started = time.strftime("%Y-%m-%dT%H:%M:%S")
+    cur = conn.execute(
+        "INSERT INTO runs (started_at, status) VALUES (?, 'running')", (started,)
+    )
+    run_id = cur.lastrowid
+    new_count, errors, per_source = 0, [], {"europepmc": {"fetched": 0, "new": 0}}
+
+    if settings.get("src_europepmc_enabled", "1") == "1":
+        for g in groups:
+            try:
+                for p in europepmc.search(
+                    queries.to_europepmc_query(g, *window), *window
+                ):
+                    per_source["europepmc"]["fetched"] += 1
+                    p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
+                    p["matched_groups"] = [g.name]
+                    if store.upsert_paper(conn, p):
+                        new_count += 1
+                        per_source["europepmc"]["new"] += 1
+            except SourceError as e:
+                log.error("topic track group %s failed: %s", g.name, e)
+                errors.append(f"{g.name}: {e}")
+    else:
+        per_source["europepmc"]["disabled"] = True
+
+    if llm:
+        log.warning("--llm requested but LLM track lands in a later task; skipped")
+
+    if errors and per_source["europepmc"]["fetched"] == 0 and not per_source["europepmc"].get("disabled"):
+        status = "failed"  # 全部启用组失败
+    elif errors:
+        status = "partial"
+    else:
+        status = "ok"
+    finished = time.strftime("%Y-%m-%dT%H:%M:%S")
+    conn.execute(
+        "UPDATE runs SET finished_at=?, status=?, new_count=?, per_source=?, error=?"
+        " WHERE id=?",
+        (finished, status, new_count,
+         json.dumps(per_source, ensure_ascii=False),
+         "; ".join(errors) or None, run_id),
+    )
+    conn.commit()
+    if own:
+        conn.close()
+    return {"ok": 0, "partial": 2, "failed": 3}[status]
+
