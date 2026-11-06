@@ -1,0 +1,20 @@
+{
+  "version": "6.9",
+  "hitCount": 2,
+  "resultList": {
+    "result": [
+      {
+        "id": "401", "source": "MED", "pmid": "401", "pmcid": "PMC401",
+        "doi": "10.1/a",
+        "title": "Paper A about MALDI imaging",
+        "abstractText": "Abstract A.",
+        "authorString": "Alice A, Bob B, Carol C;",
+        "journalTitle": "Journal A",
+        "firstPublicationDate": "2026-11-01",
+        "firstIndexationDate": "2026-11-02",
+        "isOpenAccess": "Y"
+      }
+    ]
+  },
+  "nextCursorMark": "CUR2"
+}
