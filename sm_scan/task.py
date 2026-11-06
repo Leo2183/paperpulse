@@ -86,7 +86,7 @@ def register() -> tuple[bool, str]:
         "/TR", _scan_command(),
         "/SC", "DAILY", "/ST", "09:00", "/F",
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     if r.returncode != 0:
         return False, (r.stderr or r.stdout or "schtasks failed").strip()[:300]
     return True, "已注册每日 09:00(仅用户登录时运行;空档由窗口自动覆盖)"
@@ -95,7 +95,7 @@ def register() -> tuple[bool, str]:
 def remove() -> tuple[bool, str]:
     r = subprocess.run(
         ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     if r.returncode != 0:
         return False, (r.stderr or r.stdout).strip()[:300]
@@ -105,7 +105,7 @@ def remove() -> tuple[bool, str]:
 def status() -> dict:
     r = subprocess.run(
         ["schtasks", "/Query", "/TN", TASK_NAME],
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     return {"registered": r.returncode == 0,
             "raw": (r.stdout or r.stderr or "")[:500]}

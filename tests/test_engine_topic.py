@@ -171,3 +171,13 @@ def test_all_tracks_fail_exit_3(conn, monkeypatch):
                         lambda a, b, g: (_ for _ in ()).throw(SourceError("down")))
     rc = engine.run_scan(conn=conn)
     assert rc == 3
+
+
+def test_run_ts_assigns_first_seen_for_midnight_spanning_run(conn, monkeypatch):
+    """跨零点 run 的所有论文 first_seen 归入起始时刻(spec §5)。"""
+    monkeypatch.setattr(
+        "sm_scan.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([_paper("10.7/a", "Midnight paper")]))
+    engine.run_scan(conn=conn, run_ts="2026-11-05T23:58:00")
+    fs = conn.execute("SELECT first_seen FROM papers WHERE id='10.7/a'").fetchone()[0]
+    assert fs.startswith("2026-11-05T23:58")

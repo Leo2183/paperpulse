@@ -142,3 +142,9 @@ def test_lock_retry_logic(monkeypatch):
     assert store._with_lock_retry(flaky) == 42
     assert calls["n"] == 3
     assert len(sleeps) == 2
+
+
+def test_upsert_respects_provided_first_seen(conn):
+    store.upsert_paper(conn, _paper(first_seen="2026-11-06T23:59:00"))
+    fs = conn.execute("SELECT first_seen FROM papers").fetchone()[0]
+    assert fs == "2026-11-06T23:59:00"

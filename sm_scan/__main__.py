@@ -38,9 +38,20 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.cmd == "scan":
         setup_logging()
+        from datetime import date as _date
+
         from .engine import run_scan
 
-        return run_scan(dry_run=args.dry_run, llm=args.llm, days=args.days)
+        rc = run_scan(dry_run=args.dry_run, llm=args.llm, days=args.days)
+        if not args.dry_run and rc in (0, 2):
+            from . import report as _report, store as _store
+            from .engine import last_report_date
+
+            conn = _store.connect()
+            _store.init_db(conn)
+            path = _report.generate(conn, last_report_date(conn))
+            print(f"report: {path}")
+        return rc
 
     if args.cmd == "report":
         from datetime import date as _date

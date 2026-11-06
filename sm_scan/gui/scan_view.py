@@ -38,7 +38,8 @@ class ScanWorker(QThread):
         try:
             rc = engine.run_scan()
             try:
-                report.generate(store.connect(), date.today())
+                conn = store.connect()
+                report.generate(conn, engine.last_report_date(conn))
             except Exception:
                 self.log_line.emit("日报生成失败(可稍后 sm_scan report 重试)")
         finally:

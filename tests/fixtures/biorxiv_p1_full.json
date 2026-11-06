@@ -1,0 +1,21 @@
+{
+  "messages": [{"status": "ok", "count": 30, "total": 32}],
+  "collection": [
+    {
+      "doi": "10.1101/2026.11.01.001",
+      "title": "Plant mass spectrometry imaging study",
+      "abstract": "<p>leaf tissue imaging</p>",
+      "authors": "A A",
+      "date": "2026-11-01",
+      "category": "biochemistry"
+    },
+    {
+      "doi": "10.1101/2026.11.02.002",
+      "title": "CRISPR unrelated",
+      "abstract": "<p>gene editing</p>",
+      "authors": "B B",
+      "date": "2026-11-02",
+      "category": "biochemistry"
+    }
+  ]
+}

@@ -179,6 +179,7 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
 
     def _do() -> bool:
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        first_seen = p.get("first_seen") or now  # 尊重调用方(run 起始时刻)
         row = conn.execute(
             "SELECT sources, tags, matched_groups, subscription FROM papers WHERE id=?",
             (p["id"],),
@@ -197,7 +198,7 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
                     p["abstract"], json.dumps(p["tags"]),
                     json.dumps(p["matched_groups"]), p.get("status", "unread"),
                     p.get("starred", 0), p.get("to_read", 0), p["llm_digest"],
-                    now, now,
+                    first_seen, now,
                 ),
             )
             conn.commit()

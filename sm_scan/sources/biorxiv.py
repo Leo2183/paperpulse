@@ -69,8 +69,12 @@ def _to_paper(item: dict, groups) -> store.Paper | None:
 
 
 def scan(d_from: date, d_to: date, groups) -> Iterator[store.Paper]:
-    """按日期窗逐页(整数页码)拉取,本地组过滤后产出。"""
+    """按日期窗逐页(整数页码)拉取,本地组过滤后产出。
+
+    页大小由 API 决定(实测 30/页):以 total 为界翻页,不以固定页宽判断。
+    """
     page = 0
+    seen = 0
     while True:
         url = API.format(from_=d_from.isoformat(), to=d_to.isoformat(), page=page)
         body = http_get(url)
@@ -86,6 +90,11 @@ def scan(d_from: date, d_to: date, groups) -> Iterator[store.Paper]:
                 continue
             if p is not None:
                 yield p
-        if len(items) < 100:
+        seen += len(items)
+        total = int(msg.get("total") or 0)
+        if not items or (total and seen >= total):
             return
         page += 1
+        if page > 500:  # 防御:极端总量上限
+            log.error("bioRxiv pagination exceeded 500 pages; stopping")
+            return

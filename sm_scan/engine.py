@@ -92,8 +92,9 @@ def last_ok_finished(conn) -> date | None:
 
 
 def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
-             days: int | None = None) -> int:
-    """三轨扫描(本任务实现主题轨道;订阅/bioRxiv 在 Task 11 接入)。
+             days: int | None = None, run_ts: str | None = None) -> int:
+    """三轨扫描。run_ts:本次 run 的起始时间戳(默认墙钟)——所有入库论文
+    的 first_seen 统一取该值,跨零点 run 归入起始日(spec §5)。
 
     退出码:0=ok,2=partial,3=failed(spec §11)。
     """
@@ -140,7 +141,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         print(f"[dry-run] window: {window[0]} → {window[1]}")
         return 0
 
-    started = time.strftime("%Y-%m-%dT%H:%M:%S")
+    started = run_ts or time.strftime("%Y-%m-%dT%H:%M:%S")
     cur = conn.execute(
         "INSERT INTO runs (started_at, status) VALUES (?, 'running')", (started,)
     )
@@ -156,6 +157,10 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         enabled_tracks.add(name)
         return d
 
+    def _upsert(p) -> bool:
+        p["first_seen"] = started  # 跨零点归属:统一 run 起始时刻
+        return store.upsert_paper(conn, p)
+
     # --- 轨道1:Europe PMC 主题检索 ---
     if settings.get("src_europepmc_enabled", "1") == "1":
         t = _track("europepmc")
@@ -168,7 +173,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
                     t["fetched"] += 1
                     p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
                     p["matched_groups"] = [g.name]
-                    if store.upsert_paper(conn, p):
+                    if _upsert(p):
                         new_count += 1
                         t["new"] += 1
                 any_ok = True
@@ -192,7 +197,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
                 stale = p.pop("_stale", False)  # 注册日保护:只入库不计新增
                 p["subscription"] = jrow["name"]
                 p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
-                if store.upsert_paper(conn, p) and not stale:
+                if _upsert(p) and not stale:
                     new_count += 1
                     t["new"] += 1
         except SourceError as e:
@@ -214,7 +219,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             for p in biorxiv.scan(bw[0], bw[1], groups):
                 t["fetched"] += 1
                 p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
-                if store.upsert_paper(conn, p):
+                if _upsert(p):
                     new_count += 1
                     t["new"] += 1
         except SourceError as e:
@@ -245,3 +250,12 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
     if own:
         conn.close()
     return {"ok": 0, "partial": 2, "failed": 3}[status]
+
+
+def last_report_date(conn) -> "date":
+    """最新已结束 run 的起始日期(日报文件名应取它,spec §5)。"""
+    row = conn.execute(
+        "SELECT started_at FROM runs WHERE finished_at IS NOT NULL"
+        " ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return date.fromisoformat(row["started_at"][:10]) if row else date.today()
