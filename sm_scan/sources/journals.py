@@ -175,14 +175,25 @@ def scan_journals(
         yield from _scan_one(conn, row, window, today)
 
 
-def backfill_journal(conn, jid: int, today: date | None = None) -> int:
-    """GUI 新增刊自动回填近 90 天(QThread 逐页调用,窗口 >7 天安全阀自动跳过)。"""
+def backfill_journal(
+    conn, jid: int, today: date | None = None,
+    progress=None, should_stop=None,
+) -> int:
+    """GUI 新增刊自动回填近 90 天(QThread 调用,窗口 >7 天安全阀自动跳过)。
+
+    progress(n) 每处理一篇回调;should_stop() 为真时提前停止(可取消)。
+    """
     today = today or date.today()
     row = dict(conn.execute(
         "SELECT * FROM journal_subscriptions WHERE id=?", (jid,)).fetchone())
     window = (today - timedelta(days=BACKFILL_DAYS), today)
-    n = 0
+    n = seen = 0
     for p, _ in _scan_one(conn, row, window, today):
+        if should_stop and should_stop():
+            break
         if store.upsert_paper(conn, p):
             n += 1
+        seen += 1
+        if progress:
+            progress(seen)
     return n

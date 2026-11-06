@@ -30,13 +30,15 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.list_view = PaperListView(self.conn, refresh_parent=self.refresh)
         from .mark_view import MarkView
+        from .queries_view import QueriesView
 
         self.mark_view = MarkView(self.conn, refresh_parent=self.refresh)
-        self.views = [self.list_view, self.mark_view]
-        self.stack.addWidget(self.list_view)
-        self.stack.addWidget(self.mark_view)
-        # 视图3-4 在后续任务接入
-        for label in NAV_LABELS[2:]:
+        self.queries_view = QueriesView(self.conn, parent_window=self)
+        self.views = [self.list_view, self.mark_view, self.queries_view]
+        for v in self.views:
+            self.stack.addWidget(v)
+        # 视图4 在后续任务接入
+        for label in NAV_LABELS[3:]:
             placeholder = QLabel(f"{label}(待接入)")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.views.append(placeholder)

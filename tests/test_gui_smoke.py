@@ -82,3 +82,21 @@ def test_mark_view_exports_todo(win, tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "Plant MALDI imaging" in text
     assert "Nature pick" not in text
+
+
+def test_queries_view_group3_refine_guard(win):
+    qv = win.queries_view
+    qv.group_list.setCurrentRow(2)  # 组3 产物注释
+    assert qv.g_name.text() == "产物注释"
+    qv.g_refine.setPlainText("")  # 清空 refine
+    from PySide6.QtWidgets import QMessageBox
+
+    calls = []
+    QMessageBox.warning = staticmethod(
+        lambda *a, **k: calls.append(a) or QMessageBox.StandardButton.Ok)
+    qv._save_group()
+    assert calls, "组3 refine 清空必须弹警告阻止保存"
+    # 库中 refine 未被清空
+    row = win.conn.execute(
+        "SELECT refine FROM term_groups WHERE name='产物注释'").fetchone()
+    assert json.loads(row["refine"])

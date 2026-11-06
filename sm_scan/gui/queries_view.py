@@ -1,0 +1,351 @@
+"""视图3:检索式配置 —— 检索组 / 订阅期刊 / 源与 LLM 三个页签(spec §9)。
+
+短语行内语法:每行一条;以 `|t` 结尾表示 scope=title(歧义缩写仅标题)。
+"""
+
+import json
+
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QMainWindow, QMessageBox, QPushButton, QSpinBox,
+    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
+    QWidget,
+)
+
+from .. import llm, queries, store
+from ..sources import crossref, journals
+
+
+class BackfillWorker(QThread):
+    progress = Signal(int)
+    done = Signal(int)
+
+    def __init__(self, conn, jid):
+        super().__init__()
+        self.conn = conn
+        self.jid = jid
+
+    def run(self):
+        n = journals.backfill_journal(
+            self.conn, self.jid,
+            progress=self.progress.emit,
+            should_stop=self.isInterruptionRequested,
+        )
+        self.done.emit(n)
+
+
+def _parse_terms(text: str) -> list[dict]:
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.endswith("|t"):
+            out.append({"phrase": line[:-2].strip(), "scope": "title"})
+        else:
+            out.append({"phrase": line, "scope": "title_abs"})
+    return out
+
+
+def _terms_text(rows: list[dict]) -> str:
+    return "\n".join(
+        t["phrase"] + ("|t" if t.get("scope") == "title" else "")
+        if isinstance(t, dict) else str(t)
+        for t in rows
+    )
+
+
+class QueriesView(QWidget):
+    def __init__(self, conn, parent_window: QMainWindow | None = None):
+        super().__init__()
+        self.conn = conn
+        self.win = parent_window
+        self._worker = None
+        tabs = QTabWidget()
+        tabs.addTab(self._build_groups_page(), "检索组")
+        tabs.addTab(self._build_journals_page(), "订阅期刊")
+        tabs.addTab(self._build_settings_page(), "源与 LLM")
+        layout = QVBoxLayout(self)
+        layout.addWidget(tabs)
+
+    # ------------------------------------------------------------- 检索组
+
+    def _build_groups_page(self) -> QWidget:
+        self.group_list = QListWidget()
+        self.group_list.currentRowChanged.connect(self._load_group)
+        self.g_name = QLineEdit()
+        self.g_enabled = QCheckBox("启用")
+        self.g_terms = QTextEdit()
+        self.g_terms.setPlaceholderText("每行一条短语;行尾加 |t 表示仅标题匹配")
+        self.g_refine = QTextEdit()
+        self.g_refine.setPlaceholderText("组内 AND 限定词,每行一条(组3 必填)")
+        save = QPushButton("保存该组")
+        save.clicked.connect(self._save_group)
+        form = QFormLayout()
+        form.addRow("组名", self.g_name)
+        form.addRow("", self.g_enabled)
+        form.addRow("terms", self.g_terms)
+        form.addRow("refine", self.g_refine)
+        form.addRow("", save)
+        page = QWidget()
+        h = QHBoxLayout(page)
+        h.addWidget(self.group_list)
+        box = QWidget()
+        box.setLayout(form)
+        h.addWidget(box, stretch=1)
+        self._reload_groups()
+        return page
+
+    def _reload_groups(self) -> None:
+        self.group_list.clear()
+        for r in store.load_groups(self.conn):
+            self.group_list.addItem(
+                f"{'✓' if r['enabled'] else '✗'} {r['name']}")
+
+    def _load_group(self, row: int) -> None:
+        groups = store.load_groups(self.conn)
+        if not (0 <= row < len(groups)):
+            return
+        g = groups[row]
+        self._gid = g["id"]
+        self.g_name.setText(g["name"])
+        self.g_enabled.setChecked(bool(g["enabled"]))
+        self.g_terms.setPlainText(_terms_text(json.loads(g["terms"])))
+        self.g_refine.setPlainText(_terms_text(json.loads(g["refine"])))
+
+    def _save_group(self) -> None:
+        groups = store.load_groups(self.conn)
+        row = self.group_list.currentRow()
+        if not (0 <= row < len(groups)):
+            return
+        gid = groups[row]["id"]
+        name = self.g_name.text().strip()
+        refine = _parse_terms(self.g_refine.toPlainText())
+        if "注释" in name and not refine:
+            QMessageBox.warning(
+                self, "refine 必填",
+                "组3(产物注释)的 refine 不能为空——清空会引入大量非质谱噪音。")
+            return
+        self.conn.execute(
+            "UPDATE term_groups SET name=?, enabled=?, terms=?, refine=?"
+            " WHERE id=?",
+            (name, int(self.g_enabled.isChecked()),
+             json.dumps(_parse_terms(self.g_terms.toPlainText()),
+                        ensure_ascii=False),
+             json.dumps(refine, ensure_ascii=False), gid),
+        )
+        self.conn.commit()
+        self._reload_groups()
+        self.group_list.setCurrentRow(row)
+
+    # ------------------------------------------------------------- 订阅
+
+    def _build_journals_page(self) -> QWidget:
+        self.j_table = QTableWidget(0, 5)
+        self.j_table.setHorizontalHeaderLabels(
+            ["刊名", "ISSN", "模式", "路由", "启用"])
+        self.j_add_name = QLineEdit()
+        self.j_add_name.setPlaceholderText("刊名(如 Nature)或 ISSN")
+        resolve = QPushButton("解析")
+        resolve.clicked.connect(self._resolve_journal)
+        self.j_matches = QComboBox()
+        add = QPushButton("添加并回填 90 天")
+        add.clicked.connect(self._add_journal)
+        self.j_status = QLabel("")
+        cancel = QPushButton("取消回填")
+        cancel.clicked.connect(self._cancel_backfill)
+        top = QHBoxLayout()
+        for w in (self.j_add_name, resolve, self.j_matches, add, cancel):
+            top.addWidget(w)
+        del_btn = QPushButton("删除选中刊")
+        del_btn.clicked.connect(self._del_journal)
+        mode_btn = QPushButton("切换选中刊模式")
+        mode_btn.clicked.connect(self._toggle_mode)
+        bar2 = QHBoxLayout()
+        bar2.addWidget(del_btn)
+        bar2.addWidget(mode_btn)
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.addLayout(top)
+        v.addWidget(self.j_status)
+        v.addWidget(self.j_table)
+        v.addLayout(bar2)
+        self._reload_journals()
+        return page
+
+    def _reload_journals(self) -> None:
+        rows = [dict(r) for r in self.conn.execute(
+            "SELECT * FROM journal_subscriptions ORDER BY id")]
+        self.j_table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            for col, text in enumerate([
+                r["name"], r["issn"], r["mode"], r["route"] or "—",
+                "✓" if r["enabled"] else "✗",
+            ]):
+                self.j_table.setItem(i, col, QTableWidgetItem(text))
+        self.j_table.setRowCount(len(rows))
+
+    def _resolve_journal(self) -> None:
+        text = self.j_add_name.text().strip()
+        if not text:
+            return
+        try:
+            settings = store.load_settings(self.conn)
+            matches = crossref.resolve_journal(
+                text, mailto=settings.get("crossref_mailto") or None)
+        except Exception as e:  # 网络/解析失败不崩 GUI
+            self.j_status.setText(f"解析失败:{e}")
+            return
+        self.j_matches.clear()
+        for title, issn in matches[:10]:
+            self.j_matches.addItem(f"{title} [{issn}]", (title, issn))
+        self.j_status.setText(f"{len(matches)} 个匹配(精确名优先)" if matches else "未找到该刊")
+
+    def _add_journal(self) -> None:
+        idx = self.j_matches.currentIndex()
+        if idx < 0:
+            self._resolve_journal()
+            idx = self.j_matches.currentIndex()
+            if idx < 0:
+                return
+        title, issn = self.j_matches.itemData(idx)
+        settings = store.load_settings(self.conn)
+        try:
+            count = crossref.count_recent(
+                issn, mailto=settings.get("crossref_mailto") or None)
+        except Exception:
+            count = 0
+        mode = journals.suggest_mode(count)
+        cur = self.conn.execute(
+            "INSERT INTO journal_subscriptions (name, issn, mode, route,"
+            " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
+            (title, issn, mode))
+        self.conn.commit()
+        jid = cur.lastrowid
+        self._reload_journals()
+        self.j_status.setText(
+            f"已添加 {title}:近 90 天 {count} 条,建议模式 {mode};回填中…")
+        self._worker = BackfillWorker(self.conn, jid)
+        self._worker.progress.connect(
+            lambda n: self.j_status.setText(f"回填中…已处理 {n} 条"))
+        self._worker.done.connect(
+            lambda n: self.j_status.setText(f"回填完成,新增 {n} 篇"))
+        self._worker.start()
+
+    def _cancel_backfill(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._worker.requestInterruption()
+            self.j_status.setText("正在取消回 fill…")
+
+    def _del_journal(self) -> None:
+        row = self.j_table.currentRow()
+        if row < 0:
+            return
+        issn = self.j_table.item(row, 1).text()
+        self.conn.execute(
+            "DELETE FROM journal_subscriptions WHERE issn=?", (issn,))
+        self.conn.commit()
+        self._reload_journals()
+
+    def _toggle_mode(self) -> None:
+        row = self.j_table.currentRow()
+        if row < 0:
+            return
+        issn = self.j_table.item(row, 1).text()
+        cur = self.conn.execute(
+            "SELECT mode FROM journal_subscriptions WHERE issn=?",
+            (issn,)).fetchone()
+        new = "filter" if cur["mode"] == "full" else "full"
+        self.conn.execute(
+            "UPDATE journal_subscriptions SET mode=? WHERE issn=?",
+            (new, issn))
+        self.conn.commit()
+        self._reload_journals()
+
+    # ------------------------------------------------------------- 源与 LLM
+
+    def _build_settings_page(self) -> QWidget:
+        s = store.load_settings(self.conn)
+        self.c_europepmc = QCheckBox("Europe PMC 主题检索")
+        self.c_journals = QCheckBox("期刊订阅")
+        self.c_biorxiv = QCheckBox("bioRxiv")
+        for cb, key in ((self.c_europepmc, "src_europepmc_enabled"),
+                        (self.c_journals, "src_journals_enabled"),
+                        (self.c_biorxiv, "src_biorxiv_enabled")):
+            cb.setChecked(s.get(key, "1") == "1")
+            cb.stateChanged.connect(
+                lambda _st, k=key, c=cb: store.save_setting(
+                    self.conn, k, "1" if c.isChecked() else "0"))
+        self.mailto = QLineEdit(s.get("crossref_mailto", ""))
+        self.mailto.editingFinished.connect(
+            lambda: store.save_setting(self.conn, "crossref_mailto",
+                                       self.mailto.text().strip()))
+        self.backfill = QSpinBox()
+        self.backfill.setRange(7, 365)
+        self.backfill.setValue(int(s.get("backfill_days", "30")))
+        self.backfill.valueChanged.connect(
+            lambda v: store.save_setting(self.conn, "backfill_days", str(v)))
+
+        self.llm_url = QLineEdit(s.get("llm_base_url", ""))
+        self.llm_url.setPlaceholderText("如 https://open.bigmodel.cn/api/paas/v4")
+        self.llm_key = QLineEdit()
+        self.llm_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.llm_key.setPlaceholderText(
+            "留空=保持已存 key;输入即覆盖(DPAPI 加密存储)")
+        self.llm_model = QLineEdit(s.get("llm_model", ""))
+        test = QPushButton("测试连接")
+        test.clicked.connect(self._test_llm)
+
+        def _save_llm():
+            store.save_setting(self.conn, "llm_base_url",
+                               self.llm_url.text().strip())
+            store.save_setting(self.conn, "llm_model",
+                               self.llm_model.text().strip())
+            if self.llm_key.text().strip():
+                store.save_setting(
+                    self.conn, "llm_api_key",
+                    llm.dpapi_encrypt(self.llm_key.text().strip()))
+
+        for w, sig in ((self.llm_url, "editingFinished"),
+                       (self.llm_model, "editingFinished"),
+                       (self.llm_key, "editingFinished")):
+            getattr(w, sig).connect(_save_llm)
+
+        form = QFormLayout()
+        form.addRow("Europe PMC", self.c_europepmc)
+        form.addRow("期刊订阅", self.c_journals)
+        form.addRow("bioRxiv", self.c_biorxiv)
+        form.addRow("Crossref mailto(polite pool)", self.mailto)
+        form.addRow("首跑回填天数", self.backfill)
+        form.addRow("LLM base_url", self.llm_url)
+        form.addRow("LLM api_key", self.llm_key)
+        form.addRow("LLM model", self.llm_model)
+        form.addRow("", test)
+        page = QWidget()
+        page.setLayout(form)
+        return page
+
+    def _test_llm(self) -> None:
+        cfg = self._llm_cfg()
+        if not cfg:
+            QMessageBox.warning(self, "未配置", "请先填写 base_url 与 model。")
+            return
+        try:
+            out = llm._chat(cfg, [{"role": "user", "content": "ping"}])
+            QMessageBox.information(self, "连接成功", f"模型回复:{out[:80]}")
+        except Exception as e:
+            QMessageBox.warning(self, "连接失败", str(e)[:300])
+
+    def _llm_cfg(self) -> dict | None:
+        s = store.load_settings(self.conn)
+        if not (s.get("llm_base_url") and s.get("llm_model")):
+            return None
+        key = ""
+        if s.get("llm_api_key"):
+            try:
+                key = llm.dpapi_decrypt(s["llm_api_key"])
+            except OSError:
+                key = ""
+        return dict(llm_base_url=s["llm_base_url"],
+                    llm_model=s["llm_model"], llm_api_key=key)
