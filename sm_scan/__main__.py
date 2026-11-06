@@ -69,6 +69,11 @@ def main(argv=None) -> int:
         print(("OK: " if ok else "FAIL: ") + msg)
         return 0 if ok else 1
 
+    if args.cmd == "gui":
+        from .gui.app import main as gui_main
+
+        return gui_main()
+
     parser.print_help()
     return 0
 
