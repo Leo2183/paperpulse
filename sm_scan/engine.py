@@ -8,7 +8,7 @@ import time
 from datetime import date, timedelta
 
 from . import queries, store, tags
-from .sources import europepmc
+from .sources import biorxiv, europepmc, journals
 from .sources.base import SourceError
 
 log = logging.getLogger(__name__)
@@ -121,6 +121,16 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
     if dry_run:
         for g in groups:
             print(f"[dry-run] {g.name}: {queries.to_europepmc_query(g, *window)}")
+        n_j = conn.execute(
+            "SELECT COUNT(*) FROM journal_subscriptions WHERE enabled=1"
+        ).fetchone()[0]
+        print(f"[dry-run] journals: {n_j} 刊订阅,窗口 {window[0]} → {window[1]}(路由运行时探测)")
+        bw = scan_window(
+            last_ok_finished(conn), date.today(),
+            backfill_days=int(days or settings.get("backfill_days", "30")),
+            biorxiv=True,
+        )
+        print(f"[dry-run] biorxiv: 窗口 {bw[0]} → {bw[1]}(首跑回填 7 天,此后随主窗口)")
         print(f"[dry-run] window: {window[0]} → {window[1]}")
         return 0
 
@@ -129,32 +139,91 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         "INSERT INTO runs (started_at, status) VALUES (?, 'running')", (started,)
     )
     run_id = cur.lastrowid
-    new_count, errors, per_source = 0, [], {"europepmc": {"fetched": 0, "new": 0}}
+    new_count = 0
+    errors: list[str] = []
+    per_source: dict = {}
+    failed_tracks: set[str] = set()
+    enabled_tracks: set[str] = set()
 
+    def _track(name: str) -> dict:
+        d = per_source.setdefault(name, {"fetched": 0, "new": 0})
+        enabled_tracks.add(name)
+        return d
+
+    # --- 轨道1:Europe PMC 主题检索 ---
     if settings.get("src_europepmc_enabled", "1") == "1":
+        t = _track("europepmc")
+        any_ok = False
         for g in groups:
             try:
                 for p in europepmc.search(
                     queries.to_europepmc_query(g, *window), *window
                 ):
-                    per_source["europepmc"]["fetched"] += 1
+                    t["fetched"] += 1
                     p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
                     p["matched_groups"] = [g.name]
                     if store.upsert_paper(conn, p):
                         new_count += 1
-                        per_source["europepmc"]["new"] += 1
+                        t["new"] += 1
+                any_ok = True
             except SourceError as e:
                 log.error("topic track group %s failed: %s", g.name, e)
                 errors.append(f"{g.name}: {e}")
+        if groups and not any_ok:
+            failed_tracks.add("europepmc")
     else:
-        per_source["europepmc"]["disabled"] = True
+        per_source["europepmc"] = {"disabled": True}
+
+    # --- 轨道2:期刊订阅 ---
+    if settings.get("src_journals_enabled", "1") == "1":
+        t = _track("journals")
+        try:
+            for p, jrow in journals.scan_journals(
+                conn, window, date.today(),
+                mailto=settings.get("crossref_mailto") or None,
+            ):
+                t["fetched"] += 1
+                stale = p.pop("_stale", False)  # 注册日保护:只入库不计新增
+                p["subscription"] = jrow["name"]
+                p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
+                if store.upsert_paper(conn, p) and not stale:
+                    new_count += 1
+                    t["new"] += 1
+        except SourceError as e:
+            log.error("journal track failed: %s", e)
+            errors.append(f"journals: {e}")
+            failed_tracks.add("journals")
+    else:
+        per_source["journals"] = {"disabled": True}
+
+    # --- 轨道3:bioRxiv ---
+    if settings.get("src_biorxiv_enabled", "1") == "1":
+        t = _track("biorxiv")
+        bw = scan_window(
+            last_ok_finished(conn), date.today(),
+            backfill_days=int(days or settings.get("backfill_days", "30")),
+            biorxiv=True,
+        )
+        try:
+            for p in biorxiv.scan(bw[0], bw[1], groups):
+                t["fetched"] += 1
+                p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
+                if store.upsert_paper(conn, p):
+                    new_count += 1
+                    t["new"] += 1
+        except SourceError as e:
+            log.error("biorxiv track failed: %s", e)
+            errors.append(f"biorxiv: {e}")
+            failed_tracks.add("biorxiv")
+    else:
+        per_source["biorxiv"] = {"disabled": True}
 
     if llm:
         log.warning("--llm requested but LLM track lands in a later task; skipped")
 
-    if errors and per_source["europepmc"]["fetched"] == 0 and not per_source["europepmc"].get("disabled"):
-        status = "failed"  # 全部启用组失败
-    elif errors:
+    if enabled_tracks and failed_tracks == enabled_tracks:
+        status = "failed"  # 全部启用轨道失败
+    elif failed_tracks:
         status = "partial"
     else:
         status = "ok"
@@ -170,4 +239,3 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
     if own:
         conn.close()
     return {"ok": 0, "partial": 2, "failed": 3}[status]
-

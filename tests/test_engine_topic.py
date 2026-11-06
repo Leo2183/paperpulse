@@ -29,6 +29,15 @@ def conn(tmp_path, monkeypatch):
     return c
 
 
+@pytest.fixture(autouse=True)
+def _no_other_tracks(monkeypatch):
+    """默认把订阅与 biorxiv 轨道 mock 为空,防测试触真实网络;个别测试再覆盖。"""
+    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+                        lambda c, w, t, mailto=None: iter([]))
+    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+                        lambda a, b, g: iter([]))
+
+
 def test_topic_scan_union_dedup_and_group_accumulation(conn, monkeypatch, capsys):
     queues = [
         [_paper("10.1/a", "MALDI imaging of plant")],
@@ -70,7 +79,7 @@ def test_dry_run_prints_no_write(conn, monkeypatch, capsys):
     assert conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 0
 
 
-def test_all_sources_fail_exit_3(conn, monkeypatch):
+def test_topic_track_only_fail_is_partial(conn, monkeypatch):
     from sm_scan.sources.base import SourceError
 
     def fake_search(query, d_from, d_to, page_size=100):
@@ -78,9 +87,9 @@ def test_all_sources_fail_exit_3(conn, monkeypatch):
 
     monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn)
-    assert rc == 3
+    assert rc == 2  # 仅主题轨失败,其余轨道空跑成功 → partial
     run = conn.execute("SELECT status FROM runs ORDER BY id DESC").fetchone()
-    assert run["status"] == "failed"
+    assert run["status"] == "partial"
 
 
 def test_seeds_default_groups_on_first_run(conn, monkeypatch):
@@ -105,3 +114,60 @@ def test_disabled_source_skipped(conn, monkeypatch):
     rc = engine.run_scan(conn=conn)
     assert rc == 0
     assert called == []
+
+
+def test_subscription_track_integration(conn, monkeypatch):
+    from sm_scan.sources import journals as journals_mod
+
+    p1 = _paper("10.5/a", "Nature paper on metabolism", source="europepmc")
+    p2 = _paper("10.5/b", "Old registered paper", source="crossref")
+    p2["_stale"] = True
+    jrow = {"id": 1, "name": "Nature", "mode": "filter", "route": "europepmc", "enabled": 1}
+
+    def fake_scan_journals(c, window, today, mailto=None):
+        yield (p1, jrow)
+        yield (p2, jrow)
+
+    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+                        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr(journals_mod, "scan_journals", fake_scan_journals)
+    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+                        lambda a, b, g: iter([]))
+    rc = engine.run_scan(conn=conn)
+    assert rc == 0
+    subs = conn.execute("SELECT id, subscription FROM papers").fetchall()
+    assert all(r["subscription"] == "Nature" for r in subs)
+    run = conn.execute("SELECT new_count, per_source FROM runs ORDER BY id DESC").fetchone()
+    # stale 只入库不计新增
+    assert run["new_count"] == 1
+    assert "_stale" not in dict(conn.execute(
+        "SELECT * FROM papers WHERE id='10.5/b'").fetchone())
+
+
+def test_biorxiv_track_integration(conn, monkeypatch):
+    from sm_scan.sources import biorxiv as brx
+
+    preprint = _paper("10.1101/x", "Spatial metabolomics preprint",
+                      source="biorxiv", matched_groups=["植物+空间成像"])
+    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+                        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+                        lambda c, w, t, mailto=None: iter([]))
+    monkeypatch.setattr(brx, "scan", lambda a, b, g: iter([preprint]))
+    rc = engine.run_scan(conn=conn)
+    assert rc == 0
+    row = conn.execute("SELECT source FROM papers WHERE id='10.1101/x'").fetchone()
+    assert row["source"] == "biorxiv"
+
+
+def test_all_tracks_fail_exit_3(conn, monkeypatch):
+    from sm_scan.sources.base import SourceError
+
+    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+                        lambda q, a, b, page_size=100: (_ for _ in ()).throw(SourceError("down")))
+    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+                        lambda c, w, t, mailto=None: (_ for _ in ()).throw(SourceError("down")))
+    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+                        lambda a, b, g: (_ for _ in ()).throw(SourceError("down")))
+    rc = engine.run_scan(conn=conn)
+    assert rc == 3

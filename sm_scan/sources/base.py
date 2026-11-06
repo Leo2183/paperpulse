@@ -68,4 +68,7 @@ def http_post(url: str, data: dict) -> dict:
 def _raise_for_status(resp: requests.Response) -> dict:
     if resp.status_code != 200:
         raise SourceError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-    return resp.json()
+    try:
+        return resp.json()
+    except ValueError as e:  # 维护页等非 JSON 响应
+        raise SourceError(f"non-JSON response: {resp.text[:120]}") from e

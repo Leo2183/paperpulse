@@ -1,0 +1,21 @@
+{
+  "messages": [{"status": "ok", "count": 2, "total": 2}],
+  "collection": [
+    {
+      "doi": "10.1101/2026.11.01.1",
+      "title": "<p>Spatial metabolomics of plant leaves</p>",
+      "abstract": "<p>We used <i>MALDI imaging</i> on leaf tissue.</p>",
+      "authors": "Alice A; Bob B",
+      "date": "2026-11-01",
+      "category": "biochemistry"
+    },
+    {
+      "doi": "10.1101/2026.11.02.2",
+      "title": "Unrelated CRISPR screen",
+      "abstract": "<p>Gene editing study in cell lines.</p>",
+      "authors": "C C",
+      "date": "2026-11-02",
+      "category": "biochemistry"
+    }
+  ]
+}
