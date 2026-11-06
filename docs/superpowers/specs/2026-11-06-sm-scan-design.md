@@ -20,7 +20,7 @@
 | GUI | 四视图(列表筛选/标记管理/检索式配置/扫描中心) | 需求问答 |
 | 技术栈 | Python + PySide6(助手决定) | 需求问答 |
 | LLM 接口 | 通用 OpenAI 兼容格式(base_url + api_key + model 三项可配) | 设计评审 |
-| OpenAlex | 使用 `search.title_and_abstract` 新语法;API key 可选(keyless 10 req/s 可跑,免费 key 额度 $1/天、限速 30 req/s) | 2026-11-06 官方文档核实 |
+| OpenAlex | `search.title_and_abstract` 新语法;**API key 必填**(cursor 翻页第 2 页起需 key,2026-11-06 官方文档+API 实测);`from_created_date` 等入库时间过滤器为付费功能不可用(实测 429),窗口改固定 60 天回看 | 2026-11-06 官方文档核实 + API 实测 |
 
 ## 2. 总体架构
 
@@ -100,10 +100,11 @@ AND FIRST_IDATE:[2026-10-04 TO 2026-11-06]
 |---|---|
 | 检索语法 | `?search.title_and_abstract=<布尔表达式>`(2026-11 官方文档确认;支持大写 `AND/OR/NOT` 与 `"引号短语"`)。旧 `filter=title_and_abstract.search:` 已标记 Deprecated,不使用 |
 | 组内 → 单请求 | 每组拼成一条布尔表达式(短语加引号 OR 连接,refine 以 AND 拼入),**一组一请求**,不逐短语轰炸 |
-| API key | `settings.openalex_api_key` **可空**;有则 `api_key` 查询参数附带(免费注册,额度 $1/天、限速 30 req/s);无则 keyless(10 req/s)运行,本项目日请求量 3-6 次两者都远够 |
-| 分页 | `per-page=100`(上限 100)+ `cursor=*` 游标 |
+| API key | **必填**。免费注册(openalex.org → Settings → API key),额度 $1/天、限速 30 req/s。原因:**cursor 翻页第 2 页起必须 key**(官方原话:"without a key, `cursor=*` works, but following `next_cursor` returns a 401"),而首次回填(600-1500 条 > 100/页)必然翻页。GUI 未填 key 时 OpenAlex 源开关禁用并提示 |
+| 分页 | `per-page=100`(上限 100)+ `cursor=*` 游标(需 key,见上) |
 | 摘要 | 返回 `abstract_inverted_index`(倒排索引),入库前按位置重建文本 |
-| URL 上限 | 8190 字节;超限按短语分块拆为多次请求、结果本地并集(与 Europe PMC 拆分策略同构,见 §17) |
+| URL 上限 | 8190 字节;超限时**只分块 terms,refine 全量保留拼进每块**:块查询 = `(terms_chunk OR...) AND (refine_all OR...)`,块间并集 ≡ `(全部terms OR...) AND refine_all`,语义精确等价(绝不把 refine 也拆并集——那会退化成 OR,削弱限定) |
+| 增量窗口 | **固定 60 天回看**(`filter=from_publication_date:today-60d`),不跟随 §5 的 3 天重叠窗口;靠主键去重。原因:入库时间过滤器(`from_created_date` 等)是 Member+/Partner 付费功能(匿名实测返回 429),免费只能按出版日过滤;代价(延迟入库 >60 天的论文漏检)写进 §17 |
 
 请求示例:
 
@@ -139,7 +140,7 @@ Term(
   phrase: str,          # 小写短语
   scope: str = "title_abs",   # title_abs | title(歧义缩写限定仅标题)
 )
-TermGroup(id, name, enabled, terms: list[Term], refine: list[str] /*组内 AND 短语*/)
+TermGroup(id, name, enabled, terms: list[Term], refine: list[Term] /*组内 AND,scope 同样生效,IR 对称*/)
 ```
 
 GUI 直接编辑 IR,不碰各源语法。短语的匹配语义统一为**字段(scope)内不区分大小写包含该短语**。
@@ -170,6 +171,8 @@ terms(scope=title_abs): MALDI, matrix-assisted laser desorption ionization,
 refine: (无)
 ```
 
+本组短语表**是组1 terms 的超集**(共享 6 条),实现上按两组独立匹配、不必特殊化;组1 refine 词表与 §7「植物」标签词表**共用 `queries.py` 顶部同一份常量**,避免两处漂移(标签词表 ⊇ 组1 refine 词表)。
+
 ⚠️ 已向用户明示:裸 `MALDI` 使本组每日约 20-50 篇(含微生物鉴定、蛋白质等非成像方向),靠标签+日报分档消化;跑一两周后可在 GUI 调窄(如给组2 也加 refine),不改代码。
 
 **组3「产物注释」(默认开)**:
@@ -186,7 +189,7 @@ refine 在组3 为**必填**:GUI 清空组3 的 refine 时弹警告阻止保存(
 
 | 源 | 组内 | 组间关系 | 细节 |
 |---|---|---|---|
-| Europe PMC | 短语→`(TITLE_ABS:"p1" OR TITLE_ABS:"p2" ...)`,scope=title 的短语用 `TITLE:"p"`;refine 短语括号 AND;再 AND `FIRST_IDATE:[from TO to]` | **并集**(组是并列兴趣主题),去重靠 DOI | 查询串超长按短语分批拆多次请求,结果并集 |
+| Europe PMC | 短语→`(TITLE_ABS:"p1" OR TITLE_ABS:"p2" ...)`,scope=title 的短语用 `TITLE:"p"`;refine 短语括号 AND;再 AND `FIRST_IDATE:[from TO to]` | **并集**(组是并列兴趣主题),去重靠 DOI | 请求用 **POST**(form 编码;官方为"queries too long for a URL"提供 POST 形式)绕开 URL 长度限制,**无需分块**;所有短语一律加双引号(防 `MS/MS`、`LC-MS` 中的 `/` `-` 被分词),进 §14.2 测试 |
 | OpenAlex | 每组一条 `search.title_and_abstract=("p1" OR "p2" ...) AND (r1 OR r2 ...)`;日期用 `filter=from_publication_date:...` | **并集**,去重靠 DOI | 一组一请求;8190 字节超限分块 |
 | bioRxiv | 日期窗全量拉取,标题+摘要本地匹配 terms(OR);refine 本地 AND | **并集**,去重靠 DOI | 页码游标翻页 |
 
@@ -201,6 +204,7 @@ to   = today
 ```
 
   无成功 run 时:`from = today - backfill_days`(默认 30,bioRxiv 源例外只回填 7 天,见 §3.3)。窗口**不会**随轮次向前扩张。
+- **例外(OpenAlex)**:不跟随此窗口,固定 60 天回看(§3.2)——免费 API 无入库时间过滤器,3 天窄窗口会把"出版早、入库晚"的论文永久漏掉,60 天回看 + 去重是用请求成本(不变)换漏检风险的折中。
 - 已见主键:更新元数据(摘要可能从无到有)并刷新 `updated_at`,但不重复出现在"新论文"报告;新主键入库、`status='unread'`、记 `first_seen`。
 - **时区**:全部时间戳用**本地时区**,`first_seen`/`started_at`/`finished_at` 均为本地 ISO 格式;日报文件名取扫描开始时刻的本地日期,跨零点 run 归入起始日。
 
@@ -221,6 +225,7 @@ CREATE TABLE papers (
   url           TEXT,
   abstract      TEXT,
   tags          TEXT DEFAULT '[]',    -- JSON 数组
+  matched_groups TEXT DEFAULT '[]',   -- JSON 数组:入库时命中的检索组名(快照语义,组改名不回溯);日报三档分档的依据(§12)
   status        TEXT DEFAULT 'unread',-- unread | read | archived
   starred       INTEGER DEFAULT 0,
   to_read       INTEGER DEFAULT 0,
@@ -252,7 +257,7 @@ CREATE TABLE term_groups (   -- 检索式 IR 持久化,GUI 直接编辑
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 -- 已知键:schema_version, llm_base_url, llm_api_key(DPAPI 密文), llm_model,
 --        src_europepmc_enabled, src_openalex_enabled, src_biorxiv_enabled,
---        openalex_api_key(DPAPI 密文,可空), backfill_days
+--        openalex_api_key(DPAPI 密文,必填,见 §3.2), backfill_days
 ```
 
 **标记模型**:`status`(阅读进度)与 `starred`/`to_read`(两个独立旗标)分维度——「已读且收藏且待精读」可并存,互不覆盖。
@@ -265,7 +270,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 
 | 标签 | 规则(标题+摘要,不区分大小写) |
 |---|---|
-| `成像/空间` | 命中 `imaging, spatial, MSI, mass spectrometry imaging, mapping` 之一 |
+| `成像/空间` | 命中 `mass spectrometry imaging, MALDI-MSI, MALDI imaging, MALDI mass spectrometry imaging, imaging mass spectrometry, DESI-MSI, DESI-MS, spatial metabolomics, spatially resolved metabolomics, TOF-SIMS, secondary ion mass spectrometry, MSI imaging` 之一。**不认**裸 `imaging / spatial / MSI / mapping`(医学影像、spatial transcriptomics、微卫星不稳定、QTL mapping 等单词级误报)——宁可漏标,不可错标(错标会把噪音推进用户唯一认真读的二档) |
 | `植物` | 命中 `plant, plants, Arabidopsis, Oryza, rice, maize, wheat, soybean, Medicago, Nicotiana, Paeonia, medicinal plant, phytochemistry, root exudate, leaf tissue, plant tissue, secondary metabolite, natural product` 之一。**不做** `tissue/root/seed/flower` 等无判别力单词匹配(医学语境误报过多) |
 | `注释` | 命中**入库当时**组3 任一短语(快照语义:事后改组3 不回溯已入库论文标签) |
 
@@ -318,14 +323,14 @@ POST {base_url}/chat/completions
 ### 视图3:检索式配置
 - 关键词组列表(组名、开关、短语数);选中组编辑:短语列表(每行一条,可逐条设 scope)、refine 短语、启用开关;增删改即时存 `term_groups`
 - 组3 的 refine 清空时弹警告阻止保存(§4.2)
-- 数据源开关(三个复选框)、OpenAlex API key(密码框,DPAPI)、回填天数
+- 数据源开关(三个复选框)、OpenAlex API key(密码框,DPAPI,**必填**——为空时 OpenAlex 源开关禁用并提示"翻页需要免费 key,openalex.org 30 秒注册")、回填天数
 - LLM 配置区:base_url / api_key(密码框)/ model + "测试连接"(发一条 ping 验证)
 
 ### 视图4:扫描中心
 - 当前配置摘要 + **立即扫描**(QThread,进度条+滚动日志,完成刷新)
 - 定时任务区:任务计划状态 + 注册/删除按钮(§10)
 - 历史报告列表:`reports/*.md` 按日期列出,点击用系统默认程序打开
-- 批量导读:对最新 N 天未读论文批量生成(进度显示)
+- 批量导读:对最新 N 天未读论文批量生成(N 默认 3,可改;进度显示)
 
 ## 10. Windows 任务计划集成(`task.py`)
 
@@ -338,6 +343,10 @@ schtasks /Create /TN sm-scan-daily ^
 ```
 
 - `sys.frozen` 为真(打包版)→ /TR 指向 `sm-scan.exe scan`;否则指向 `pythonw -m sm_scan scan`(pythonw 取 `sys.executable` 同目录)——判定逻辑封装在 `task.py` 内,两种形态都可注册
+- **开发态前置**:`pip install -e .`——任务计划 cwd 是 `C:\Windows\System32`,未安装时 `import sm_scan` 失败,而 pythonw **无控制台**,失败完全静默(注册成功但从不运行,最难排查的一类)
+- **注册自检**:`register` 调 schtasks 前先跑 `pythonw -c "import sm_scan"`,退出码非 0 则拒绝注册并在 GUI 提示原因
+- **调用方式**:schtasks 一律 `subprocess.run` **列表形式、不经 shell**——上例 `/TR` 中的 `\"` 是批处理转义写法,Python 传参直接给原始字符串,不要混入字面反斜杠
+- `/SC DAILY` 默认"仅用户登录时运行":睡眠/关机时不执行、不补跑。影响仅为延迟——下次成功扫描的窗口从上次成功 run 起算(§5),空档自动覆盖,数据不丢;暂不启用"错过则尽快启动"选项
 - `remove`:`schtasks /Delete /TN sm-scan-daily /F`;`status`:`schtasks /Query`
 - **防重入锁** `data/last_run.lock`(pid+时间戳):已持锁时后到者直接退出记日志;**stale 自动清理**——锁文件 pid 不存在或超过 6 小时即视为残留,覆盖并继续
 
@@ -375,7 +384,7 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 ...
 ```
 
-- 分档依据:命中组1(refine 通过)→ 一档;未入一档但命中组2/「成像/空间」标签 → 二档;其余 → 三档
+- 分档依据(数据来源 `papers.matched_groups`,§6):含组1 → 一档;未入一档但含组2 或含「成像/空间」标签 → 二档;其余 → 三档
 - 摘要截取**前 300 词**(约 1200-1500 字符,英文摘要可读出结论;原 300 字太短)
 - 「待精读」为跨日累积状态,首行计数与分档不对应,已注明防误读
 
@@ -396,14 +405,14 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 引擎层单测(离线,mock HTTP + 真实响应 fixture):
 
 1. **DOI/标题归一化**:前缀剥离、大小写、无 DOI 标题哈希稳定
-2. **检索式翻译**:IR → Europe PMC 查询串(TITLE_ABS/TITLE scope、FIRST_IDATE、refine AND)/ OpenAlex 布尔串(URL 编码、8190 分块)/ bioRxiv 本地过滤;组间并集
+2. **检索式翻译**:IR → Europe PMC 查询串(TITLE_ABS/TITLE scope、FIRST_IDATE、refine AND、短语双引号防 `MS/MS` 分词、POST form)/ OpenAlex 布尔串(URL 编码、8190 超限时 terms 分块+refine 全量的等价性)/ bioRxiv 本地过滤;组间并集
 3. **增量窗口**:首跑回填(30 天,bioRxiv 7 天)、锚定 finished_date -3d 不随轮次扩张、已见 ID 不重复计数
 4. **Europe PMC 解析**:`resultType=core` 缺失 → 无摘要(防回归);HTTP 200 + errCode 识别为失败;cursorMark 翻页
 5. **OpenAlex 解析**:倒排索引重建摘要;cursor 翻页
 6. **bioRxiv 解析**:JATS 剥标签 + HTML 实体;整数页码翻页
 7. **标签判定**:植物词表边界(soft tissue 不标植物、Arabidopsis 标)、空摘要
 8. **LLM 客户端**:base_url 两种填法归一化、失败重试、缓存不重调、DPAPI 加解密往返
-9. **报告生成**:固定输入 → md 快照(分档、待精读重叠注明)
+9. **报告生成**:固定输入 → md 快照(分档、待精读重叠注明);**`matched_groups` 同时含组1、组2 的论文只归一档、不重复计数**
 
 GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清单手动过。
 
@@ -425,7 +434,8 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 | 裸 `MALDI`(组2)噪音 20-50 篇/天 | 日报三档分档置底;GUI 调 refine;已明示用户 |
 | 歧义缩写(MSI=微卫星不稳定等) | IR 强制 scope 机制;歧义缩写仅可 `scope=title` 或以复合词入组(§4.2) |
 | OpenAlex 布尔语法/URL 编码边界 | 实现首日用 `--dry-run` 实测,响应固化进 fixture;失败不阻塞其他源 |
-| Europe PMC / OpenAlex 查询串超长 | 均按短语分块拆分请求,结果并集(§4.3) |
+| 查询串超长 | Europe PMC 走 POST 无长度限制;OpenAlex 8190 字节超限时只分块 terms、refine 全量拼进每块,块间并集,语义精确等价(§3.2)——**refine 绝不参与分块并集**(会退化为 OR 削弱限定) |
+| OpenAlex 无法跟踪入库时间 | 免费方案已知取舍:`from_created_date` 为付费功能(实测 429),60 天回看只能按出版日;出版 >60 天前才入库的论文将漏检——非 bug,半年后遇到请对照本条 |
 | bioRxiv 首次回填过慢 | 回填窗口只 7 天 + 页码游标 + 1 req/s 限速下预计 ≤2 分钟;UI/日志显示进度 |
 | PySide6 + PyInstaller 体积/插件坑 | onedir + 常规 Qt 插件排除,打包脚本进仓库 |
 | DPAPI 密文跨机不可解 | 属预期(绑定用户);README 注明迁移需在 GUI 重新输入 key |
@@ -435,7 +445,7 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 1. 完整源码 + 测试(§2 结构)
 2. `pyproject.toml`(依赖:`pyside6, requests, pytest`;Python ≥3.10;DPAPI 走 ctypes 零额外依赖)
 3. 打包脚本 + README(安装、注册定时任务、OpenAlex key 可选申请、LLM 配置)
-4. **验收**:三源 `--dry-run` 实测请求串 → 首次回填入库 → 生成首份三档日报 → GUI 四视图手动过单 → 注册任务计划次日自动跑通
+4. **验收**:三源 `--dry-run` 实测请求串 → 首次回填入库 → 生成首份三档日报 → GUI 四视图手动过单 → 注册任务计划后 `schtasks /Run /TN sm-scan-daily` **立即触发验证**,再等次日自动跑
 
 ## 19. 修订记录
 
@@ -443,3 +453,4 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 |---|---|---|
 | 2026-11-06 | v1 | 初稿 |
 | 2026-11-06 | v2 | 按第 01 轮评审修订:P0-1 窗口锚定结束日;P0-2 FIRST_IDATE/FIRST_PDATE 分工;P0-3 core/TITLE_ABS/cursorMark/errCode;P0-4 OpenAlex 新语法+key 可选(官方文档已核实);P0-5 数据路径绝对化+sys.frozen;P0-6 组间并集统一;P0-7 scope 机制(裸 MSI 本就不在短语表,评审所指与原文有出入,约束未落地属实);P0-8 植物词表重写;P1-1 方案C 三组;P1-2 status 拆三维;P1-3 sources 数组;P1-4 视图2 恢复完整功能;P2×15 全部采纳(倒排索引/JATS/回填 7 天/时区/锁清理/pmcid/schema_version/updated_at/日报三档与 300 词/表述/DPAPI/refine 必填/测试补条) |
+| 2026-11-06 | v3 | 按第 02 轮评审修订:B1 OpenAlex key 改必填(cursor 第 2 页起需 key,文档+实测确认;v2 的"可选"与回填翻页互斥);B2 加 `matched_groups` 列作三档分档依据+双命中归档测试;B3 OpenAlex 固定 60 天回看(`from_created_date` 实测 429 付费),漏检取舍写入风险表;H1 「成像/空间」标签换无歧义复合词(删裸 imaging/spatial/MSI/mapping);H2 超长规则修正——Europe PMC 改 POST 不分块,OpenAlex 只分块 terms、refine 全量拼入保证 AND 语义;H3 注册前置 pip install -e . + import 自检 + subprocess 列表调用;M1-M9 全部采纳(refine 用 Term、短语双引号防分词、schtasks 登录态说明、/Run 立即验收、植物词表共用常量、组2⊃组1 注明、N 默认 3 天) |
