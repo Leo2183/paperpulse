@@ -38,7 +38,7 @@ D:\workspace\sm-scan\
 │   │   ├── crossref.py       # 订阅刊拉取(MEDLINE 外)+ 刊名↔ISSN 解析
 │   │   ├── journals.py       # 订阅清单、路由探测、两级过滤、新刊回填
 │   │   └── biorxiv.py
-│   ├── engine.py             # 扫描编排:窗口计算、三源收集、去重入库
+│   ├── engine.py             # 扫描编排:窗口计算、三轨收集、去重入库
 │   ├── store.py              # SQLite 访问层(WAL)
 │   ├── tags.py               # 标签判定(成像/植物/注释)
 │   ├── llm.py                # OpenAI 兼容 chat/completions 客户端
@@ -69,7 +69,7 @@ D:\workspace\sm-scan\
 - 开发态:`Path(__file__).resolve().parent.parent`(即仓库根下的 `data/`、`reports/`)
 - 打包态(`sys.frozen` 为真):`Path(sys.executable).parent` 下同名目录——满足「拷走整个 dist 目录即可用」与「任务计划在任意 cwd 下能跑」
 
-## 3. 数据源(三路)
+## 3. 数据源与订阅轨道
 
 ### 3.1 Europe PMC(主力:PubMed 期刊 + bioRxiv/medRxiv 预印本)
 
@@ -97,31 +97,47 @@ AND FIRST_IDATE:[2026-10-04 TO 2026-11-06]
 
 **背景**:第 03 轮实证(已独立复现):OpenAlex 点名要补的刊 2026 年至今在 Europe PMC 的量 = Anal Chem 2631 / Talanta 1753 / JASMS 257 条,立项理由不成立;其真实独家增量 ≈0.25 条/天,且需注册 key、keyless 额度按网络 IP 共享、检索语法半年两改。故**移除 OpenAlex**,补漏方式从"概率性全库检索"换成"确定性期刊订阅"——用户关注的刊**一条不漏**。
 
-**双轨拉取**(每本刊自动路由,订阅初始化时探测一次并存库):
+**双轨拉取**(**运行时 fallback + 缓存**,不做初始化一次性定死——季刊 90 天恰好无新文、停刊、新创刊未索引都会让"一次探测"误判且不自愈):
 
-| 路由 | 条件 | 请求 |
-|---|---|---|
-| Europe PMC | 刊在 MEDLINE(探测:近 90 天 `ISSN:"0003-2700"` hitCount>0) | `ISSN:"0003-2700" AND FIRST_IDATE:[from TO to]`(实测可用) |
-| Crossref | 刊不在 MEDLINE(如 Int J Mass Spectrom,年 84 条仅 9 条进 MEDLINE) | `https://api.crossref.org/works?filter=issn:1387-3806,from-created-date:2026-11-01`(**免费、匿名可用,已实测**;`mailto` 参数进 polite pool 3 req/s,public pool 1 req/s) |
+```
+每轮扫描,每刊:
+  Europe PMC ISSN 查询 → 有结果 → 用之(route 缓存 europepmc)
+                      → 0 条   → Crossref ISSN 查询 → 有结果 → 用之(缓存 crossref)
+                                                → 0 条 → 记 warn 下轮重试(不缓存)
+```
+
+| 路由 | 请求 |
+|---|---|
+| Europe PMC(优先) | `ISSN:"0003-2700" AND FIRST_IDATE:[from TO to]`(实测可用) |
+| Crossref(fallback) | `https://api.crossref.org/works?filter=issn:1387-3806,from-created-date:2026-11-01`(**免费、匿名可用,已实测**;`mailto` 参数进 polite pool 3 req/s,public pool 1 req/s) |
 
 **两级收录模式**(巨刊防灌爆,每刊一属性,GUI 可改):
 
-- `mode=full`:整刊直收——专业质谱/植化刊,每天几条且基本全相关
-- `mode=filter`:宽主题过滤——Nature/Science/Cell 级巨刊(每天几十条),标题+摘要命中宽词表才入库;词表 = §4.2 三组全部短语 ∪ `metabolom*, metabolite*, mass spectrometry, MALDI, DESI, natural product*, plant*, phytochem*`(常量与 `queries.py` 共用);宁宽勿漏,漏检风险见 §17
+- `mode=full`:整刊直收。**适用条件是发文量小,不是"专业刊"**——第 04 轮实测 IJMS(曾想当然归 full)日均 33 条、Anal Chem 8.5 条,照原归类日报将达 66 条/天。模式由**实测发文量自动建议**:加刊时探测近 90 天条数,**≤300 → 建议 full,>300 → 建议 filter**,GUI 显示实测条数作依据(用户可覆盖)
+- `mode=filter`:宽主题过滤——标题+摘要命中宽词表才入库。宽词表是**独立常量 `BROAD_TERMS`**(定义于 `journals.py`,子串匹配 `"metabolom" in text.lower()`,**不是 IR、不复用 `Term` 与翻译流程**——`Term` 无通配概念):`metabolom, metabolite, mass spectrometry, MALDI, DESI, natural product, plant, phytochem` 等词干 ∪ §4.2 三组短语;宁宽勿漏,漏检风险见 §17
+- **`full` 运行时安全阀**:单刊单日新增 >30 条(发文量暴涨,MDPI 系常见)→ 该刊本次自动降级为 `filter` 处理,run 日志与日报标注——清单归类错了也不会一夜灌库
 
-**新订阅自动回填**:GUI 新增刊时自动拉该刊近 **90 天**(两轨 API 均支持历史窗口)——漏检从"永久损失"变为"迟几个月、补订即补回"。
+**新订阅自动回填**:GUI 新增刊时自动拉该刊近 **90 天**(两轨 API 均支持历史窗口)——漏检从"永久损失"变为"迟几个月、补订即补回"。回填在 **QThread** 内执行(大刊 90 天可达 30+ 页 × 1 req/s ≈ 30-60 秒/刊),逐页进度、可取消。**首次初始化 32 刊合计 ≈ 100-140 页 ≈ 3 分钟**(IJMS 31 页、Nat Commun 23 页为主)——属预期,GUI 与 README 均写明,防"以为卡死"。
 
-**默认订阅清单 32 本**(刊名↔ISSN 由 GUI 添加时经 Crossref journals API 自动解析校验,**不手抄 ISSN**;GUI 可增删):
+**Crossref 路由的注册日保护**:`from-created-date` 过滤的是 **DOI 注册时间**而非出版时间,出版社回溯数字化/批量补注册会让窗口内涌进陈年旧文——Crossref 路由记录用 `issued` 填 `pub_date`,且 **`pub_date` 早于今天 12 个月的记录只入库、不计入「新增」报告**。
 
-| 类别(模式) | 期刊 |
-|---|---|
-| 综合/顶级(filter) | Nature, Science, Cell, PNAS, Nature Methods, Nature Biotechnology, Nature Chemistry, Nature Plants, Nature Communications, Science Advances, Advanced Science, Angewandte Chemie Int Ed |
-| 质谱/分析(full) | Analytical Chemistry, Analytical and Bioanalytical Chemistry, J Am Soc Mass Spectrom, J Mass Spectrometry, Rapid Communications in Mass Spectrometry, Mass Spectrometry Reviews, Int J Mass Spectrometry, Talanta, Analytica Chimica Acta, TrAC Trends in Analytical Chemistry |
-| 植物/天然产物/食品(full) | Phytochemistry, Phytochemical Analysis, Journal of Natural Products, Natural Product Reports, Trends in Plant Science, Horticulture Research, Int J of Molecular Sciences, Food Chemistry, Food Chemistry: X, Metabolites |
+**Crossref 路由已知限制**(第 04 轮实测,Elsevier 不向 Crossref 提交摘要):
 
-(清单构成依据:用户精读文献库的 8 本来源刊 + 用户指定的 CNS + 空间代谢组学常发阵地的 Nature 子刊)
+1. 记录**无 `abstract` 字段**(实测 `10.1016/j.ijms.2014.02.011`)→ 四处降级:`mode=filter` 对无摘要刊不可用(只剩标题可匹配,形同虚设——加刊探测到无 abstract 时**强制 full** 并在 GUI 说明);§7 标签降级为仅标题匹配;日报显示「摘要未提供(Crossref)」不留空白;LLM 导读无摘要可喂,跳过并计数
+2. 目录页等非论文条目**伪装成 `journal-article`**(实测 title="Graphical abstract Contents continued")→ Crossref 路由必过**标题黑名单**:`Contents continued, Editorial Board, Graphical abstract, In this issue, Cover, Erratum, Corrigendum, Publisher's Note`
+3. 影响面:清单中真正走 Crossref 路由的仅 Int J Mass Spectrom 等少数窄刊,但必须先写明,否则 `mode=filter` 设计会在实现时被推翻
 
-**请求量**:~32 刊 × 1 次 + 主题检索 3 次 + bioRxiv 2-6 次 ≈ **≤40 次/天**,三源各 1 req/s 串行完全够;全部匿名,**零 key 零注册**
+**默认订阅清单 32 本**(按发文量实测自动分档后的默认归类,GUI 可增删改):
+
+| 模式 | 期刊 | 预估日增 |
+|---|---|---|
+| filter(高发文量) | Int J of Molecular Sciences(用户要求保留的宽覆盖刊;综合刊,过滤后相关量小), Analytical Chemistry(90 天 ≈774), Talanta(≈516), Food Chemistry(≈288,边界取稳), Metabolites, Analytica Chimica Acta, Analytical and Bioanalytical Chemistry | 过滤后 3-5 条 |
+| filter(巨刊) | Nature, Science, Cell, PNAS, Nature Methods, Nature Biotechnology, Nature Chemistry, Nature Plants, Nature Communications, Science Advances, Advanced Science, Angewandte Chemie Int Ed | 过滤后 1-3 条 |
+| full(窄刊,≤300/90 天) | J Am Soc Mass Spectrom(≈75), J Mass Spectrometry, Rapid Communications in Mass Spectrometry, Mass Spectrometry Reviews, Int J Mass Spectrometry, TrAC, Phytochemistry, Phytochemical Analysis, Journal of Natural Products, Natural Product Reports, Trends in Plant Science, Horticulture Research, Food Chemistry: X | 直收 8-12 条 |
+
+合计预估 **12-17 条/天**(v4 原归类经第 04 轮实测会达 66 条/天,已否)。清单构成依据:用户精读文献库来源刊 + 用户指定的 CNS + 空间代谢组学常发阵地。刊名↔ISSN 由 GUI 添加时经 Crossref journals API 解析(**精确 title 相等优先**——"Nature" 会模糊命中 Nature Communications 等前缀刊,多匹配时列表供用户选择);内置默认清单首次启动时同样走该解析流程入库,不硬编码 ISSN
+
+**请求量**:日常 ≈32 刊 × 1 页 + 主题检索 3 次 + bioRxiv 2-6 次 ≈ **≤45 次/天**(高发文 filter 刊会翻页,IJMS 约 2-3 页/天),各 API 1 req/s 串行完全够;全部匿名,**零 key 零注册**
 
 ### 3.3 bioRxiv/medRxiv(预印本上线即抓,补 Europe PMC 索引滞后)
 
@@ -193,7 +209,7 @@ refine(AND,必填): mass spectrometry, MS/MS, LC-MS, MALDI, tandem mass spectrom
 
 refine 在组3 为**必填**:GUI 清空组3 的 refine 时弹警告阻止保存(清空即噪音爆炸)。
 
-### 4.3 三源翻译规则
+### 4.3 检索式翻译规则
 
 | 源 | 组内 | 组间关系 | 细节 |
 |---|---|---|---|
@@ -231,7 +247,7 @@ CREATE TABLE papers (
   indexed_date  TEXT,                 -- Europe PMC FIRST_IDATE / Crossref created(bioRxiv 可空)
   source        TEXT NOT NULL,        -- first_source:首次发现源
   sources       TEXT DEFAULT '[]',    -- JSON 数组:历次命中的所有源(评估各源增量价值)
-  subscription  TEXT,                 -- 命中的订阅刊名(检索轨道为 NULL;日报「订阅补漏」分节的依据)
+  subscription  TEXT,                 -- 命中的订阅刊名(**首次非空写入**:一篇论文只属于一本刊,后见不覆盖;检索轨道先入库时 NULL,订阅轨道后见时补写)。日报「订阅补漏」分节的依据
   url           TEXT,
   abstract      TEXT,
   tags          TEXT DEFAULT '[]',    -- JSON 数组
@@ -284,7 +300,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 
 **并发**:GUI 读列表与后台扫描线程并发,SQLite 开 WAL;写操作短事务,锁则重试。
 
-**迁移**:`schema_version` 存 settings;启动时比对、按版本顺序执行迁移(为三源 API 与检索式演化预留)。
+**迁移**:`schema_version` 存 settings;启动时比对、按版本顺序执行迁移(为各源 API 与检索式演化预留)。
 
 ## 7. 标签判定(`tags.py`,入库时执行)
 
@@ -344,7 +360,7 @@ POST {base_url}/chat/completions
 - 关键词组列表(组名、开关、短语数);选中组编辑:短语列表(每行一条,可逐条设 scope)、refine 短语、启用开关;增删改即时存 `term_groups`
 - 组3 的 refine 清空时弹警告阻止保存(§4.2)
 - 数据源开关(三个复选框:Europe PMC 主题检索 / 期刊订阅 / bioRxiv)、Crossref mailto(polite pool)、回填天数
-- **订阅清单编辑**(§3.2):加刊(输入刊名或 ISSN → Crossref journals API 解析校验 → 选模式,命中内置巨刊名单自动建议 filter → 自动回填近 90 天并显示进度)、删刊、改模式/启停;列表显示刊名/路由/模式/最近命中数
+- **订阅清单编辑**(§3.2):加刊(输入刊名或 ISSN → Crossref journals API 解析校验,精确 title 相等优先,多匹配列表选择 → 探测 90 天发文量自动建议模式并显示实测条数 → **QThread 回填近 90 天**,逐页进度、可取消)、删刊、改模式/启停;列表显示刊名/路由/模式/最近命中数
 - LLM 配置区:base_url / api_key(密码框)/ model + "测试连接"(发一条 ping 验证)
 
 ### 视图4:扫描中心
@@ -386,18 +402,18 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 
 ```markdown
 # sm-scan 日报 2026-11-06
-新增 23 篇(Europe PMC 12 / 订阅 7 / bioRxiv 2)| 组1✓ 组2✓ 组3✓ | 订阅 32 刊✓
-分档:核心(植物+成像)4 | 方法学 12 | 其他 4 | 订阅补漏 3
+新增 21 篇(Europe PMC 12 / 订阅 7 / bioRxiv 2)| 组1✓ 组2✓ 组3✓ | 订阅 32 刊✓
+分档:核心(植物+成像)4 | 方法学 12 | 其他 2 | 订阅补漏 3
 
 ## 一、核心:植物+空间成像(4)
 ### [2026-11-05] Title — *Journal* `植物` `成像`
 作者串 | [DOI](https://doi.org/...) | 来源 europepmc
 > **导读**:…(无导读时显示摘要前 300 词)
 
-## 二、方法学:MALDI/MSI(15)
+## 二、方法学:MALDI/MSI(12)
 ...
 
-## 三、其他(4)
+## 三、其他(2)
 ...
 
 ## 四、订阅补漏(3,未命中任何检索式,来自订阅刊,确定性补齐)
@@ -411,7 +427,7 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 
 - 分档依据(数据来源 `papers.matched_groups`,§6):含组1 → 一档;未入一档但含组2 或含「成像/空间」标签 → 二档;其余 → 三档;`matched_groups` 为空且 `subscription` 非空 → 「订阅补漏」节(这些论文没踩中任何检索式,是订阅确定性补来的,单独呈现便于人工过目)
 - 订阅刊论文同时命中检索组时:按组分档,`subscription` 照记,不进补漏节
-- 摘要截取**前 300 词**(约 1200-1500 字符,英文摘要可读出结论;原 300 字太短)
+- 摘要截取**前 300 词**(约 1200-1500 字符,英文摘要可读出结论;原 300 字太短);Crossref 路由的无摘要条目显示「摘要未提供(Crossref)」,不留空白
 - 「待精读」为跨日累积状态,首行计数与分档不对应,已注明防误读
 
 ## 13. 错误处理
@@ -419,7 +435,7 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 | 场景 | 行为 |
 |---|---|
 | 单源 API 失败(含 Europe PMC HTTP 200 + errCode) | 重试 2 次后放弃该源,run 记 partial,报告注明;`resultList` 缺失显式识别为失败 |
-| 网络断网 | 三源全失败 → run 记 failed,退出码 3;GUI 弹提示 |
+| 网络断网 | 全部轨道失败 → run 记 failed,退出码 3;GUI 弹提示 |
 | LLM 未配置就触发 | 明确报错"请先在检索式配置中填写 LLM 三项",不静默 |
 | LLM 单篇失败 | 跳过+计数,批量继续 |
 | DB 被锁 | WAL 下罕见;写事务重试 3 次(间隔 200ms)后报错 |
@@ -436,7 +452,7 @@ python -m sm_scan task register|remove|status            # 定时任务管理
 2. **检索式翻译**:IR → Europe PMC 查询串(TITLE_ABS/TITLE scope、FIRST_IDATE、refine AND、短语双引号防 `MS/MS` 分词、POST form)/ bioRxiv 本地过滤;组间并集
 3. **增量窗口**:首跑回填(30 天,bioRxiv 7 天)、锚定 finished_date -3d 不随轮次扩张、已见 ID 不重复计数;**订阅轨道窗口 = 主窗口**(显式断言,防被"顺手统一")、GUI 新增刊回填 90 天
 4. **Europe PMC 解析**:`resultType=core` 缺失 → 无摘要(防回归);HTTP 200 + errCode 识别为失败;cursorMark 翻页
-5. **订阅轨道解析**:Crossref ISSN 拉取(`from-created-date`)、Crossref abstract 剥 JATS、宽过滤词表命中/未命中边界、路由探测(MEDLINE 内/外)
+5. **订阅轨道解析**:Crossref ISSN 拉取(`from-created-date`)、**无 abstract 的降级行为(强制 full / 标签仅标题 / 导读跳过)**、标题黑名单(目录页不入库)、`BROAD_TERMS` 子串匹配边界、路由 fallback 与缓存(0/0 → warn 重试)、单刊单日 >30 降级 filter 安全阀、注册日 12 个月保护、自动分档阈值(≤300/90 天)
 6. **bioRxiv 解析**:JATS 剥标签 + HTML 实体;整数页码翻页
 7. **标签判定**:植物词表边界(soft tissue 不标植物、Arabidopsis 标)、空摘要
 8. **LLM 客户端**:base_url 两种填法归一化、失败重试、缓存不重调、DPAPI 加解密往返
@@ -453,6 +469,7 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 ## 16. 非目标(本期不做)
 
 - 自动下载 PDF / 与 `spatial-metabolomics-papers` 的导入联动(`pmcid` 列已留位)
+- 预印本与正式版的合并去重(两者 DOI 不同,`10.1101/xxx` vs 期刊 DOI,同一研究会以两条出现——v1 起即如此,订阅面扩大后更明显,列为**已知取舍**不处理)
 - 邮件/IM 推送;相似论文推荐、引用图;多用户/网络服务化;WoS/Scopus
 
 ## 17. 风险与缓解
@@ -463,7 +480,10 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 | 歧义缩写(MSI=微卫星不稳定等) | IR 强制 scope 机制;歧义缩写仅可 `scope=title` 或以复合词入组(§4.2) |
 | Europe PMC 查询串超长 | 走 POST 无长度限制(§4.3) |
 | 订阅清单可能不全(漏掉未订阅的 MEDLINE 外期刊) | GUI 随时加刊 + 自动回填 90 天:漏检从"永久损失"变"迟几个月、补订即补回" |
-| 巨刊 `filter` 宽词表漏检 | 词表宁宽(与检索短语共用常量);发现漏检可把该刊改 `full` 模式 |
+| 巨刊 `filter` 宽词表漏检 | 词表宁宽(`BROAD_TERMS` 子串匹配);发现漏检可把该刊改 `full` 模式 |
+| Crossref 路由刊无摘要(Elsevier 不提交) | 四处降级已定义(§3.2):强制 full / 标签仅标题 / 日报标注 / 导读跳过 |
+| 发文量暴涨(MDPI 系常见)灌库 | `full` 运行时安全阀:单刊单日 >30 条自动降 filter 并告警(§3.2) |
+| Crossref 注册日涌入陈年旧文 | 12 个月保护:早于今天的记录只入库不计新增(§3.2) |
 | bioRxiv 首次回填过慢 | 回填窗口只 7 天 + 页码游标 + 1 req/s 限速下预计 ≤2 分钟;UI/日志显示进度 |
 | PySide6 + PyInstaller 体积/插件坑 | onedir + 常规 Qt 插件排除,打包脚本进仓库 |
 | DPAPI 密文跨机不可解 | 属预期(绑定用户);README 注明迁移需在 GUI 重新输入 key |
@@ -483,3 +503,4 @@ GUI 不写自动化测试(PySide6 自动化成本>收益),交付前按验收清�
 | 2026-11-06 | v2 | 按第 01 轮评审修订:P0-1 窗口锚定结束日;P0-2 FIRST_IDATE/FIRST_PDATE 分工;P0-3 core/TITLE_ABS/cursorMark/errCode;P0-4 OpenAlex 新语法+key 可选(官方文档已核实);P0-5 数据路径绝对化+sys.frozen;P0-6 组间并集统一;P0-7 scope 机制(裸 MSI 本就不在短语表,评审所指与原文有出入,约束未落地属实);P0-8 植物词表重写;P1-1 方案C 三组;P1-2 status 拆三维;P1-3 sources 数组;P1-4 视图2 恢复完整功能;P2×15 全部采纳(倒排索引/JATS/回填 7 天/时区/锁清理/pmcid/schema_version/updated_at/日报三档与 300 词/表述/DPAPI/refine 必填/测试补条) |
 | 2026-11-06 | v3 | 按第 02 轮评审修订:B1 OpenAlex key 改必填(cursor 第 2 页起需 key,文档+实测确认;v2 的"可选"与回填翻页互斥);B2 加 `matched_groups` 列作三档分档依据+双命中归档测试;B3 OpenAlex 固定 60 天回看(`from_created_date` 实测 429 付费),漏检取舍写入风险表;H1 「成像/空间」标签换无歧义复合词(删裸 imaging/spatial/MSI/mapping);H2 超长规则修正——Europe PMC 改 POST 不分块,OpenAlex 只分块 terms、refine 全量拼入保证 AND 语义;H3 注册前置 pip install -e . + import 自检 + subprocess 列表调用;M1-M9 全部采纳(refine 用 Term、短语双引号防分词、schtasks 登录态说明、/Run 立即验收、植物词表共用常量、组2⊃组1 注明、N 默认 3 天) |
 | 2026-11-06 | v4 | 按第 03 轮评审+用户确认:**移除 OpenAlex,改「Europe PMC 主题检索 + ISSN 订阅 + bioRxiv」三轨**(实证:点名的三本刊已在 Europe PMC 2631/1753/257 条,独家增量 ≈0.25 条/天,两实证已独立复现;用户拍板采纳方案A 并要求清单含 CNS)。订阅 32 本(full/filter 两级模式防巨刊灌爆)、新刊自动回填 90 天、刊名↔ISSN 经 Crossref journals API 自动解析不手抄、journal_subscriptions 表;N1(§18 残留矛盾)随移除消解;N4 `matched_groups` 改**并集累加**(先组3 后组1 可升档,tags 仍快照);N5 订阅轨道窗口显式断言;日报加「订阅补漏」第四节;Crossref 429 退避、ISSN 解析失败提示;全程零 API key |
+| 2026-11-06 | v5 | 按第 04 轮评审(三项实测已复现:IJMS 2026 年 10335 条、Crossref 无 abstract、目录页伪装 journal-article):**P0-1** `full` 归类前提不成立(v4 归类会达 66 条/天)→ 模式改按发文量自动建议(≤300/90 天 → full),清单重排(IJMS 降 filter 保留、Anal Chem/Talanta/Food Chem/Metabolites/ACA/ABC 全部改 filter),预估降至 12-17 条/天,另加 full 安全阀(单刊单日 >30 自动降 filter);**P0-2** Crossref 路由无摘要 → 四处降级(无摘要刊强制 full/标签仅标题/日报标注/导读跳过)+ 标题黑名单 + 注册日 12 个月保护;P1×6(路由 fallback+缓存、subscription 首次非空写入、BROAD_TERMS 独立常量子串匹配、回填 QThread 可取消、首次回填 3 分钟估算、刊名解析精确匹配优先);P2×4(日报数字对齐 21、三源→三轨措辞、预印本重复入非目标) |
