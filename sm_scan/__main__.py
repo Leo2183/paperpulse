@@ -29,12 +29,28 @@ def main(argv=None) -> int:
     sc.add_argument("--llm", action="store_true")
     sc.add_argument("--dry-run", action="store_true")
 
+    rp = sub.add_parser("report", help="regenerate a daily report")
+    rp.add_argument("--date", default=None, help="YYYY-MM-DD")
+
     args = parser.parse_args(argv)
     if args.cmd == "scan":
         setup_logging()
         from .engine import run_scan
 
         return run_scan(dry_run=args.dry_run, llm=args.llm, days=args.days)
+
+    if args.cmd == "report":
+        from datetime import date as _date
+
+        from . import report as _report, store as _store
+
+        conn = _store.connect()
+        _store.init_db(conn)
+        d = (_date.fromisoformat(args.date)
+             if args.date else _date.today())
+        path = _report.generate(conn, d)
+        print(path)
+        return 0
 
     parser.print_help()
     return 0
