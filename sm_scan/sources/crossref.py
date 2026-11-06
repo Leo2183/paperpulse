@@ -23,6 +23,18 @@ TITLE_BLACKLIST = [
     "contents continued", "editorial board", "graphical abstract",
     "in this issue", "cover", "erratum", "corrigendum", "publisher's note",
 ]
+_BLACKLIST_EXACT = {"cover", "front matter", "back matter", "table of contents"}
+_BLACKLIST_PREFIX = (
+    "graphical abstract", "contents continued", "editorial board",
+    "in this issue", "publisher's note", "erratum", "corrigendum",
+    "front matter",
+)
+
+
+def _blacklisted(title: str) -> bool:
+    """精确判定:全等或已知目录页前缀;子串(discovery/coverage)不误杀。"""
+    t = title.strip().lower()
+    return t in _BLACKLIST_EXACT or t.startswith(_BLACKLIST_PREFIX)
 
 
 def _strip_jats(s: str) -> str:
@@ -105,8 +117,8 @@ def fetch_journal(
         msg = body.get("message", {})
         items = msg.get("items", [])
         for it in items:
-            title = ((it.get("title") or [""])[0] or "").strip().lower()
-            if any(b in title for b in TITLE_BLACKLIST):
+            title = ((it.get("title") or [""])[0] or "").strip()
+            if _blacklisted(title):
                 continue
             try:
                 yield _to_paper(it, today)

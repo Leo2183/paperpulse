@@ -109,3 +109,13 @@ def test_export_todo_snapshot(conn):
     assert "https://doi.org/10.2/a" in text
     assert "导读一。" in text
     assert path.name.startswith("todo-reading-")
+
+
+def test_subscription_paper_with_group_hit_tiered_by_group(conn):
+    """spec §12:订阅刊论文同时命中检索组 → 按组分档,不进补漏节。"""
+    store.upsert_paper(conn, _paper(
+        "10.3/a", "Plant MSI in Nature journal",
+        matched_groups=["植物+空间成像"], subscription="Nature"))
+    text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
+    assert "一、核心:植物+空间成像(1)" in text
+    assert "订阅补漏 0" in text  # 头部分档行;空补漏不输出节

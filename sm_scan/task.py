@@ -56,6 +56,15 @@ def _my_pid() -> int:
     return os.getpid()
 
 
+def release_lock() -> None:
+    """扫描结束释放锁(GUI 长存进程不得长期持锁挤掉计划任务)。"""
+    lock = config.data_dir() / "last_run.lock"
+    try:
+        lock.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _scan_command() -> str:
     if getattr(sys, "frozen", False):
         exe = Path(sys.executable).with_name("sm-scan.exe")

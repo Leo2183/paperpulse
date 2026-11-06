@@ -155,3 +155,22 @@ def test_backfill_journal_uses_90_days(conn, monkeypatch):
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     journals.backfill_journal(conn, 1, today=TODAY)
     assert windows and (TODAY - windows[0][0]).days == 90
+
+
+def test_probe_passes_mailto_to_crossref(conn, monkeypatch):
+    settings_mailto = "me@example.org"
+    seen = {}
+
+    def fake_fetch(issn, a, b, mailto=None, today=None):
+        seen["mailto"] = mailto
+        return iter([_paper("10.9/m", "M")])
+
+    monkeypatch.setattr(
+        "sm_scan.sources.journals.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr("sm_scan.sources.journals.crossref.fetch_journal", fake_fetch)
+    store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
+    jid = conn.execute(
+        "SELECT id FROM journal_subscriptions WHERE name LIKE 'International Journal of Mass%'").fetchone()[0]
+    journals.route(conn, jid, (date(2026, 11, 1), TODAY), mailto=settings_mailto)
+    assert seen["mailto"] == settings_mailto

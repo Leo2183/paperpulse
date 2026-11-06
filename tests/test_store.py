@@ -148,3 +148,11 @@ def test_upsert_respects_provided_first_seen(conn):
     store.upsert_paper(conn, _paper(first_seen="2026-11-06T23:59:00"))
     fs = conn.execute("SELECT first_seen FROM papers").fetchone()[0]
     assert fs == "2026-11-06T23:59:00"
+
+
+def test_abstract_monotonic_fill(conn):
+    """spec §5 摘要从无到有:后见无摘要(Crossref)不得抹掉先存摘要。"""
+    store.upsert_paper(conn, _paper(abstract="Europe PMC abstract."))
+    store.upsert_paper(conn, _paper(abstract=None))
+    abstract = conn.execute("SELECT abstract FROM papers").fetchone()[0]
+    assert abstract == "Europe PMC abstract."

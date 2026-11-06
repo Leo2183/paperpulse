@@ -83,7 +83,7 @@ def _broad_hit(title: str, abstract: str | None) -> bool:
     return bool(words & set(BROAD_WORDS))
 
 
-def _probe(row: dict, window: tuple[date, date]):
+def _probe(row: dict, window: tuple[date, date], mailto: str | None = None):
     """运行时 fallback:Europe PMC 优先,0 条转 Crossref;双 0 返回 None。"""
     try:
         q = (
@@ -102,7 +102,7 @@ def _probe(row: dict, window: tuple[date, date]):
     except SourceError as e:
         log.warning("journal %s europepmc probe failed: %s", row["name"], e)
     try:
-        it = crossref.fetch_journal(row["issn"], *window)
+        it = crossref.fetch_journal(row["issn"], *window, mailto=mailto)
         first = next(it, None)
         if first is not None:
 
@@ -122,20 +122,22 @@ def _cache_route(conn, jid: int, route: str) -> None:
     conn.commit()
 
 
-def route(conn, jid: int, window: tuple[date, date]) -> str:
+def route(conn, jid: int, window: tuple[date, date],
+          mailto: str | None = None) -> str:
     """探测并缓存单刊路由;双 0 不缓存(下轮重试)。"""
     row = dict(conn.execute(
         "SELECT * FROM journal_subscriptions WHERE id=?", (jid,)).fetchone())
-    kind, _ = _probe(row, window)
+    kind, _ = _probe(row, window, mailto=mailto)
     if kind:
         _cache_route(conn, jid, kind)
     return kind
 
 
 def _scan_one(
-    conn, row: dict, window: tuple[date, date], today: date
+    conn, row: dict, window: tuple[date, date], today: date,
+    mailto: str | None = None,
 ) -> Iterator[tuple[store.Paper, dict]]:
-    kind, papers = _probe(row, window)
+    kind, papers = _probe(row, window, mailto=mailto)
     if not kind:
         log.warning("journal %s: no results on either route; retry next run",
                     row["name"])
@@ -172,12 +174,12 @@ def scan_journals(
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM journal_subscriptions WHERE enabled=1 ORDER BY id")]
     for row in rows:
-        yield from _scan_one(conn, row, window, today)
+        yield from _scan_one(conn, row, window, today, mailto=mailto)
 
 
 def backfill_journal(
     conn, jid: int, today: date | None = None,
-    progress=None, should_stop=None,
+    progress=None, should_stop=None, mailto: str | None = None,
 ) -> int:
     """GUI 新增刊自动回填近 90 天(QThread 调用,窗口 >7 天安全阀自动跳过)。
 
@@ -188,7 +190,7 @@ def backfill_journal(
         "SELECT * FROM journal_subscriptions WHERE id=?", (jid,)).fetchone())
     window = (today - timedelta(days=BACKFILL_DAYS), today)
     n = seen = 0
-    for p, _ in _scan_one(conn, row, window, today):
+    for p, _ in _scan_one(conn, row, window, today, mailto=mailto):
         if should_stop and should_stop():
             break
         if store.upsert_paper(conn, p):

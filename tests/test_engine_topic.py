@@ -181,3 +181,64 @@ def test_run_ts_assigns_first_seen_for_midnight_spanning_run(conn, monkeypatch):
     engine.run_scan(conn=conn, run_ts="2026-11-05T23:58:00")
     fs = conn.execute("SELECT first_seen FROM papers WHERE id='10.7/a'").fetchone()[0]
     assert fs.startswith("2026-11-05T23:58")
+
+
+def test_one_group_failing_is_partial(conn, monkeypatch):
+    """spec §13:单组失败 → partial(退出码 2),不得静默 ok。"""
+    from sm_scan.sources.base import SourceError as _SE
+
+    def _raising():
+        def gen():
+            raise _SE("down")
+            yield  # pragma: no cover
+        return gen()
+
+    queues = [
+        [_paper("10.8/a", "Hit one")],
+        _raising(),
+        _raising(),
+    ]
+
+    def fake_search(q, d_from, d_to, page_size=100):
+        item = queues.pop(0)
+        return item if not isinstance(item, list) else iter(item)
+
+    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    rc = engine.run_scan(conn=conn)
+    assert rc == 2
+    run = conn.execute("SELECT status FROM runs ORDER BY id DESC").fetchone()
+    assert run["status"] == "partial"
+
+
+def test_lock_released_after_scan(conn, monkeypatch):
+    """扫描结束必须释放防重入锁(GUI 长存进程不得长期持锁)。"""
+    from sm_scan import config
+
+    monkeypatch.setattr(
+        "sm_scan.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    engine.run_scan(conn=conn)
+    assert not (config.data_dir() / "last_run.lock").exists()
+
+
+def test_llm_flag_invokes_batch(conn, monkeypatch):
+    """--llm 开启:配置齐全时扫描后对未读新文批量导读(spec §8 CLI 路径)。"""
+    store.save_setting(conn, "llm_base_url", "https://x/v4")
+    store.save_setting(conn, "llm_model", "m")
+    monkeypatch.setattr(
+        "sm_scan.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([_paper("10.9/a", "For digest")]))
+    calls = []
+
+    def fake_batch(c, papers, cfg, progress=None):
+        calls.append(len(papers))
+        return 0, 0
+
+    monkeypatch.setattr("sm_scan.llm.batch_digest", fake_batch)
+    rc = engine.run_scan(conn=conn, llm=True)
+    assert rc == 0
+    assert calls, "llm=True 必须触发 batch_digest"
+    # 未配置时同样安全
+    store.save_setting(conn, "llm_base_url", "")
+    rc2 = engine.run_scan(conn=conn, llm=True)
+    assert rc2 == 0

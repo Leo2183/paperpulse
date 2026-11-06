@@ -139,3 +139,67 @@ def test_batch_digest_progress_callback(win, monkeypatch):
     )
     assert ok == 2 and fail == 0
     assert seen == [1, 2]
+
+
+def test_workers_use_own_connection(win, monkeypatch):
+    """QThread worker 不得使用主线程 conn(首次写库即 ProgrammingError,C2)。"""
+    import threading
+
+    from sm_scan import store as store_mod
+    from sm_scan.gui.queries_view import BackfillWorker
+    from sm_scan.gui.scan_view import DigestWorker
+    from sm_scan.sources import journals as jmod
+
+    store_mod.seed_journals(win.conn, jmod.DEFAULT_JOURNAL_ROWS)
+    jid = 1
+    monkeypatch.setattr(
+        "sm_scan.sources.journals.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr(
+        "sm_scan.sources.journals.crossref.fetch_journal",
+        lambda issn, a, b, mailto=None, today=None: iter([]))
+
+    errors = []
+
+    def run_backfill():
+        try:
+            BackfillWorker(jid).run()  # 目标签名:不接收主线程 conn
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    t = threading.Thread(target=run_backfill)
+    t.start()
+    t.join(timeout=30)
+    assert not errors
+
+    store_mod.upsert_paper(win.conn, store_mod.Paper(
+        id="10.4/a", doi="10.4/a", pmcid=None, title="T", authors=None,
+        journal=None, pub_date="2026-11-01", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs", tags=[], matched_groups=[], status="unread",
+        starred=0, to_read=0, llm_digest=None, first_seen=None, updated_at=None))
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "d"}}]}
+
+    from sm_scan import llm as llm_mod
+
+    monkeypatch.setattr(llm_mod.requests, "post", lambda *a, **kw: Resp())
+
+    def run_digest():
+        try:
+            DigestWorker(
+                [{"id": "10.4/a", "title": "T", "abstract": "abs",
+                  "llm_digest": None}],
+                dict(llm_base_url="https://x/v4", llm_model="m", llm_api_key="k"),
+            ).run()
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    t2 = threading.Thread(target=run_digest)
+    t2.start()
+    t2.join(timeout=30)
+    assert not errors

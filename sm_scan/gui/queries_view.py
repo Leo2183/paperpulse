@@ -18,20 +18,28 @@ from ..sources import crossref, journals
 
 
 class BackfillWorker(QThread):
+    """回填线程:conn 必须线程内自建(主线程 conn 跨线程写库即抛异常)。"""
+
     progress = Signal(int)
     done = Signal(int)
 
-    def __init__(self, conn, jid):
+    def __init__(self, jid):
         super().__init__()
-        self.conn = conn
         self.jid = jid
 
     def run(self):
-        n = journals.backfill_journal(
-            self.conn, self.jid,
-            progress=self.progress.emit,
-            should_stop=self.isInterruptionRequested,
-        )
+        from .. import store as store_mod
+
+        conn = store_mod.connect()
+        store_mod.init_db(conn)
+        try:
+            n = journals.backfill_journal(
+                conn, self.jid,
+                progress=self.progress.emit,
+                should_stop=self.isInterruptionRequested,
+            )
+        finally:
+            conn.close()
         self.done.emit(n)
 
 
@@ -226,7 +234,7 @@ class QueriesView(QWidget):
         self._reload_journals()
         self.j_status.setText(
             f"已添加 {title}:近 90 天 {count} 条,建议模式 {mode};回填中…")
-        self._worker = BackfillWorker(self.conn, jid)
+        self._worker = BackfillWorker(jid)
         self._worker.progress.connect(
             lambda n: self.j_status.setText(f"回填中…已处理 {n} 条"))
         self._worker.done.connect(

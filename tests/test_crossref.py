@@ -74,3 +74,25 @@ def test_count_recent(monkeypatch):
         crossref, "http_get",
         lambda u, params=None, mailto=None: {"message": {"total-results": 84}})
     assert crossref.count_recent("1387-3806") == 84
+
+
+def test_blacklist_exact_not_substring(monkeypatch):
+    """黑名单按标题形态精确判定,'discovery/coverage' 等子串不得误杀。"""
+    body = {"message": {"total-results": 5, "items": [
+        {"DOI": "10.1/keep1", "title": ["Discovery of novel alkaloids from plants"],
+         "issued": {"date-parts": [[2026, 11, 1]]}, "type": "journal-article"},
+        {"DOI": "10.1/keep2", "title": ["Coverage analysis of metabolites"],
+         "issued": {"date-parts": [[2026, 11, 1]]}, "type": "journal-article"},
+        {"DOI": "10.1/keep3", "title": ["Recovered ion signals"],
+         "issued": {"date-parts": [[2026, 11, 1]]}, "type": "journal-article"},
+        {"DOI": "10.1/drop1", "title": ["Graphical abstract Contents continued"],
+         "issued": {"date-parts": [[2026, 11, 1]]}, "type": "journal-article"},
+        {"DOI": "10.1/drop2", "title": ["Erratum to: something"],
+         "issued": {"date-parts": [[2026, 11, 1]]}, "type": "journal-article"},
+    ]}}
+    monkeypatch.setattr(crossref, "http_get",
+                        lambda u, params=None, mailto=None: body)
+    out = list(crossref.fetch_journal("1387-3806", date(2026, 11, 1), date(2026, 11, 6)))
+    ids = {p["id"] for p in out}
+    assert {"10.1/keep1", "10.1/keep2", "10.1/keep3"} <= ids
+    assert "10.1/drop1" not in ids and "10.1/drop2" not in ids

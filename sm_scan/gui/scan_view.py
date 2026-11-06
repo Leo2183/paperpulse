@@ -48,14 +48,18 @@ class ScanWorker(QThread):
 
 
 class DigestWorker(QThread):
+    """批量导读线程:conn 线程内自建。"""
+
     progress = Signal(int, int)
     done = Signal(int, int)
 
-    def __init__(self, conn, papers, cfg):
+    def __init__(self, papers, cfg):
         super().__init__()
-        self.conn, self.papers, self.cfg = conn, papers, cfg
+        self.papers, self.cfg = papers, cfg
 
     def run(self):
+        from .. import store as store_mod
+
         total = len(self.papers)
         done_count = 0
 
@@ -64,8 +68,13 @@ class DigestWorker(QThread):
             done_count += 1
             self.progress.emit(done_count, total)
 
-        ok, fail = llm.batch_digest(
-            self.conn, self.papers, self.cfg, progress=on_progress)
+        conn = store_mod.connect()
+        store_mod.init_db(conn)
+        try:
+            ok, fail = llm.batch_digest(
+                conn, self.papers, self.cfg, progress=on_progress)
+        finally:
+            conn.close()
         self.done.emit(ok, fail)
 
 

@@ -28,13 +28,13 @@ def _day_papers(conn, day: date) -> list[dict]:
 def _tier(p: dict) -> str:
     groups = set(json.loads(p["matched_groups"] or "[]"))
     tags = set(json.loads(p["tags"] or "[]"))
-    sub = p["subscription"]
-    if sub:
-        return "catchup"
+    # 组命中优先于订阅(spec §12:订阅刊论文同时命中检索组按组分档,不进补漏)
     if G1 in groups:
         return "t1"
     if G2 in groups or IMAGING_TAG in tags:
         return "t2"
+    if p["subscription"]:
+        return "catchup"
     return "t3"
 
 
