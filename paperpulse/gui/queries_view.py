@@ -92,15 +92,65 @@ class AuditWorker(QThread):
 
     done = Signal(object)
 
-    def __init__(self, conn):
+    def __init__(self):
         super().__init__()
-        self._conn = conn  # 只读用途:audit_modes 只发网络+读库
 
     def run(self):
+        from .. import store as store_mod
+
+        conn = store_mod.connect()
+        store_mod.init_db(conn)
         try:
-            self.done.emit(journals.audit_modes(self._conn))
-        except Exception as e:
+            self.done.emit(journals.audit_modes(conn))
+        except Exception as e:  # noqa: BLE001
             self.done.emit(e)
+        finally:
+            conn.close()
+
+
+class NewJournalWorker(QThread):
+    """加刊全链后台(P0-2/P2-8):count_recent + 入库 + 90 天回填,自建连接。"""
+
+    stage = Signal(str)
+    progress = Signal(int)
+    done = Signal(int)
+
+    def __init__(self, title: str, issn: str):
+        super().__init__()
+        self.title, self.issn = title, issn
+
+    def run(self):
+        from .. import store as store_mod
+
+        conn = store_mod.connect()
+        store_mod.init_db(conn)
+        n = 0
+        try:
+            settings = store_mod.load_settings(conn)
+            self.stage.emit(f"探测 {self.title} 近 90 天发文量…")
+            try:
+                count = crossref.count_recent(
+                    self.issn, mailto=settings.get("crossref_mailto") or None)
+            except Exception:
+                count = -1
+            mode = journals.suggest_mode(count) if count >= 0 else "filter"
+            cur = conn.execute(
+                "INSERT INTO journal_subscriptions (name, issn, mode, route,"
+                " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
+                (self.title, self.issn, mode))
+            conn.commit()
+            jid = cur.lastrowid
+            extra = "" if count >= 0 else "(探测失败,暂按 filter)"
+            self.stage.emit(
+                f"已添加 {self.title}:90 天 "
+                f"{count if count >= 0 else '?'} 条,模式 {mode}{extra};回填中…")
+            n = journals.backfill_journal(
+                conn, jid, progress=self.progress.emit,
+                should_stop=self.isInterruptionRequested,
+                mailto=settings.get("crossref_mailto") or None)
+        finally:
+            conn.close()
+        self.done.emit(n)
 
 
 def _parse_terms(text: str) -> list[dict]:
@@ -270,9 +320,14 @@ class QueriesView(QWidget):
         self.j_status.setText("解析中…")
 
         def job():
-            settings = store.load_settings(self.conn)
-            return crossref.resolve_journal(
-                text, mailto=settings.get("crossref_mailto") or None)
+            conn = store.connect()  # P0-2:worker 内自建
+            store.init_db(conn)
+            try:
+                settings = store.load_settings(conn)
+                return crossref.resolve_journal(
+                    text, mailto=settings.get("crossref_mailto") or None)
+            finally:
+                conn.close()
 
         def done(res):
             if isinstance(res, Exception):
@@ -296,27 +351,15 @@ class QueriesView(QWidget):
             if idx < 0:
                 return
         title, issn = self.j_matches.itemData(idx)
-        settings = store.load_settings(self.conn)
-        try:
-            count = crossref.count_recent(
-                issn, mailto=settings.get("crossref_mailto") or None)
-        except Exception:
-            count = 0
-        mode = journals.suggest_mode(count)
-        cur = self.conn.execute(
-            "INSERT INTO journal_subscriptions (name, issn, mode, route,"
-            " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
-            (title, issn, mode))
-        self.conn.commit()
-        jid = cur.lastrowid
-        self._reload_journals()
-        self.j_status.setText(
-            f"已添加 {title}:近 90 天 {count} 条,建议模式 {mode};回填中…")
-        self._worker = BackfillWorker(jid)
+        if self._worker and self._worker.isRunning():  # 防重入
+            self.j_status.setText("上一轮添加/回填仍在进行,请稍候。")
+            return
+        self.j_status.setText(f"添加 {title}:探测 90 天发文量…")
+        self._worker = NewJournalWorker(title, issn)
+        self._worker.stage.connect(lambda msg: self.j_status.setText(msg))
         self._worker.progress.connect(
             lambda n: self.j_status.setText(f"回填中…已处理 {n} 条"))
-        self._worker.done.connect(
-            lambda n: self.j_status.setText(f"回填完成,新增 {n} 篇"))
+        self._worker.done.connect(lambda _n: self._reload_journals())
         self._worker.start()
 
     def _cancel_backfill(self) -> None:
@@ -389,7 +432,7 @@ class QueriesView(QWidget):
 
     def _audit_modes(self) -> None:
         self.j_status.setText("校验中(约 32 次请求)…")
-        self._audit_worker = AuditWorker(self.conn)
+        self._audit_worker = AuditWorker()
 
         def _show(rows):
             self.j_status.setText("")

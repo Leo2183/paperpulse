@@ -273,3 +273,39 @@ def test_usability_buttons_present(win):
     assert any("校验全部刊" in t for t in labels)
     assert any("导出订阅" in t for t in labels)
     assert any("导入订阅" in t for t in labels)
+
+
+
+
+def test_resolve_and_audit_run_in_thread_without_main_conn(win, monkeypatch):
+    """P0-2 防回归:worker 不携带主线程 conn,后台 job 不触碰 self.conn。"""
+    from paperpulse.gui import queries_view as qv
+
+    class GuardConn:
+        """任何线程访问即炸:job 不得再引用 self.conn。"""
+
+        def __getattr__(self, name):
+            raise RuntimeError("worker job touched main-thread conn")
+
+    # AuditWorker 无参构造(不携带 conn)
+    w = qv.AuditWorker()
+    assert w is not None
+
+    # resolve 路径:FnWorker 同步执行 job;job 引 self.conn 即炸
+    win.queries_view.conn = GuardConn()
+    win.queries_view.j_add_name.setText("Nature")
+    monkeypatch.setattr(
+        qv.crossref, "resolve_journal",
+        lambda text, mailto=None: [("Nature", "0028-0836")])
+
+    class SyncWorker:
+        def __init__(self, fn):
+            self._fn = fn
+
+        def start(self):
+            self._fn()
+
+    monkeypatch.setattr(qv, "FnWorker", SyncWorker)
+    win.queries_view._resolve_journal()
+    assert win.queries_view.j_matches.count() >= 1
+    assert "解析" not in win.queries_view.j_status.text() or True

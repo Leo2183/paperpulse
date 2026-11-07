@@ -255,3 +255,27 @@ def test_safety_valve_daily_rate_not_window_sum(conn, monkeypatch):
     assert not any(run((date(2026, 11, 4), TODAY)))
     # 1 天窗口 35 条 → 降级
     assert any(run((TODAY, TODAY)))
+
+
+def test_backfill_with_one_paper_persists_subscription_tags_first_seen(conn, monkeypatch):
+    """P0-1 防回归:回填拿到真实论文必须完整落库(fake 返回 1 条,循环必须进)。"""
+    from datetime import date as _d
+
+    p1 = _paper("10.12/a", "Plant MALDI imaging backfilled")
+    monkeypatch.setattr(
+        "paperpulse.sources.journals.europepmc.search",
+        lambda q, a, b, page_size=100: iter([p1]))
+    monkeypatch.setattr(
+        "paperpulse.sources.journals.crossref.fetch_journal",
+        lambda issn, a, b, mailto=None, today=None: iter([]))
+    store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
+    jid = conn.execute(
+        "SELECT id FROM journal_subscriptions WHERE name LIKE 'Journal of the American%'").fetchone()[0]
+    n = journals.backfill_journal(conn, jid, today=_d(2026, 11, 7))
+    assert n == 1
+    row = conn.execute(
+        "SELECT subscription, tags, first_seen, matched_groups FROM papers"
+        " WHERE id='10.12/a'").fetchone()
+    assert row["subscription"] == "Journal of the American Society for Mass Spectrometry"
+    assert json.loads(row["tags"])
+    assert row["first_seen"].startswith("2026-11-07")

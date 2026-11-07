@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from itertools import islice
 
-from .. import queries, store
+from .. import prepare, queries, store
 from . import crossref, europepmc
 from .base import SourceError
 
