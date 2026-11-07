@@ -122,8 +122,9 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             return d
 
         def _upsert(p, *, group_names=None, subscription=None) -> bool:
+            # group_names=None 透传 = 保留论文已有命中(bioRxiv 本地过滤给出)
             prepare.prepare_paper(
-                p, group_names=group_names or [], g3_phrases=g3_phrases,
+                p, group_names=group_names, g3_phrases=g3_phrases,
                 started=started, subscription=subscription)
             return store.upsert_paper(conn, p)
 

@@ -296,3 +296,20 @@ def test_llm_unconfigured_is_loud(conn, monkeypatch, capsys):
     engine.run_scan(conn=conn, llm=True)
     out = capsys.readouterr().out
     assert "llm" in out.lower() and ("未配置" in out or "not configured" in out.lower())
+
+
+def test_biorxiv_matched_groups_survive_prepare(conn, monkeypatch):
+    """P1-2:bioRxiv 轨的组命中不被 prepare 清空(None 语义透传)。"""
+    pre = _paper("10.13/p", "Spatial metabolomics preprint", source="biorxiv",
+                 matched_groups=["1", "2"])
+    monkeypatch.setattr(
+        "paperpulse.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
+                        lambda c, w, t, mailto=None: iter([]))
+    monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
+                        lambda a, b, g: iter([pre]))
+    engine.run_scan(conn=conn)
+    mg = json.loads(conn.execute(
+        "SELECT matched_groups FROM papers WHERE id='10.13/p'").fetchone()[0])
+    assert sorted(mg) == ["1", "2"]

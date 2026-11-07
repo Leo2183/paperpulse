@@ -165,11 +165,18 @@ class PaperListView(QWidget):
         self.table.setRowCount(len(rows))
         self.table.setSortingEnabled(True)
 
-    def _current_row(self) -> dict | None:
-        i = self.table.currentRow()
-        if 0 <= i < len(self._rows):
-            return self._rows[i]
+    def _row_by_id(self, pid: str) -> dict | None:
+        for r in self._rows:
+            if r["id"] == pid:
+                return r
         return None
+
+    def _current_row(self) -> dict | None:
+        """按选中行的 UserRole(id)取论文——排序后行号与 _rows 不再对应(P1-1)。"""
+        i = self.table.currentRow()
+        item = self.table.item(i, 0) if i >= 0 else None
+        pid = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return self._row_by_id(pid) if pid else None
 
     def _show_detail(self, *_) -> None:
         r = self._current_row()
@@ -192,10 +199,18 @@ class PaperListView(QWidget):
     # ---------------------------------------------------------------- 动作
 
     def mark_selected(self, field: str, value: int) -> None:
-        """右键/快捷标记入口:'status' 用字符串,starred/to_read 用 0/1。"""
+        """右键/快捷标记入口:'status' 用字符串,starred/to_read 用 0/1。
+
+        选中行按其 UserRole(id) 解析,排序无关(P1-1)。
+        """
+        ids = []
         rows = {i.row() for i in self.table.selectedIndexes()} or {
             self.table.currentRow()}
-        ids = [self._rows[i]["id"] for i in rows if 0 <= i < len(self._rows)]
+        for i in rows:
+            item = self.table.item(i, 0) if i >= 0 else None
+            pid = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if pid and pid not in ids:
+                ids.append(pid)
         if not ids:
             return
         col = {"status": "status", "starred": "starred", "to_read": "to_read"}[field]

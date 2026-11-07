@@ -320,3 +320,32 @@ def test_resolve_and_audit_run_in_thread_without_main_conn(win, monkeypatch):
     win.queries_view._resolve_journal()
     assert win.queries_view.j_matches.count() >= 1
     assert "解析" not in win.queries_view.j_status.text() or True
+
+
+
+def test_selection_after_sort_marks_right_paper(win):
+    """P1-1:排序后点选/标记必须命中正确论文(按 UserRole id)。"""
+    from paperpulse import store as st
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.1/aaa", doi="10.1/aaa", pmcid=None, title="AAA oldest",
+        authors=None, journal="J", pub_date="2026-09-01", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract=None, tags=[], matched_groups=[], status="unread",
+        starred=0, to_read=0, llm_digest=None, first_seen="2026-11-07T08:00:00",
+        updated_at=None))
+    lv = win.list_view
+    from PySide6.QtCore import QDate
+
+    lv.f_from.setDate(QDate(2020, 1, 1))  # 放宽默认窗(P1-4 另行修默认口径)
+    lv.f_to.setDate(QDate(2030, 12, 31))
+    lv.reload()
+    # 未排序时 _rows 首行是 pub_date 最新的(10.1/b);标题排序后首行是 AAA
+    assert lv._rows[0]["id"] == "10.1/b"
+    lv.table.sortItems(1)
+    lv.table.selectRow(0)
+    visual_title = lv.table.item(0, 1).text()
+    assert visual_title == "AAA oldest"
+    lv.mark_selected("starred", 1)
+    row = win.conn.execute(
+        "SELECT title FROM papers WHERE starred=1").fetchall()
+    assert len(row) == 1 and row[0]["title"] == "AAA oldest"
