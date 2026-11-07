@@ -260,3 +260,32 @@ def audit_modes(conn, mailto: str | None = None) -> list[dict]:
 
 
 DEFAULT_JOURNAL_ROWS = get_default_journals()
+
+
+def export_subscriptions(conn) -> dict:
+    """导出订阅清单(presets 兼容格式,便于分享/备份/换机)。"""
+    return {"journals": [
+        dict(name=r["name"], issn=r["issn"], mode=r["mode"])
+        for r in conn.execute(
+            "SELECT name, issn, mode FROM journal_subscriptions"
+            " WHERE enabled=1 ORDER BY id").fetchall()
+    ]}
+
+
+def import_subscriptions(conn, data: dict) -> int:
+    """合并导入订阅(按 ISSN 去重);返回新增刊数。"""
+    existing = {r["issn"] for r in conn.execute(
+        "SELECT issn FROM journal_subscriptions")}
+    added = 0
+    for r in data.get("journals", []):
+        if not (r.get("name") and r.get("issn")) or r["issn"] in existing:
+            continue
+        conn.execute(
+            "INSERT INTO journal_subscriptions"
+            " (name, issn, mode, route, enabled, added_at)"
+            " VALUES (?,?,?,'',1,datetime('now','localtime'))",
+            (r["name"], r["issn"], r.get("mode", "filter")))
+        existing.add(r["issn"])
+        added += 1
+    conn.commit()
+    return added

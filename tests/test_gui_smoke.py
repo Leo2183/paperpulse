@@ -263,3 +263,13 @@ def test_date_range_filter_wired(win):
     lv.reload()
     assert lv.table.rowCount() == all_n
     assert lv.table.isSortingEnabled()
+
+
+def test_usability_buttons_present(win):
+    """易用性接线:测试该组 / 模式校验 / 导入导出按钮存在。"""
+    qv = win.queries_view
+    labels = [b.text() for b in qv.findChildren(__import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton)]
+    assert any("测试该组" in t for t in labels)
+    assert any("校验全部刊" in t for t in labels)
+    assert any("导出订阅" in t for t in labels)
+    assert any("导入订阅" in t for t in labels)

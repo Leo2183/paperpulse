@@ -43,6 +43,50 @@ class BackfillWorker(QThread):
         self.done.emit(n)
 
 
+class TestGroupWorker(QThread):
+    """「测试该组」:近 7 天真实请求,预览命中(易用性)。"""
+
+    done = Signal(object)  # (ok, payload)
+
+    def __init__(self, query: str):
+        super().__init__()
+        self.query = query
+
+    def run(self):
+        from datetime import date, timedelta
+
+        from ..sources import europepmc
+        from ..sources.base import SourceError
+
+        to = date.today()
+        fr = to - timedelta(days=7)
+        try:
+            hits = []
+            for p in europepmc.search(self.query, fr, to):
+                hits.append(p["title"])
+                if len(hits) >= 5:
+                    break
+            self.done.emit(True, hits)
+        except SourceError as e:
+            self.done.emit(False, str(e))
+
+
+class AuditWorker(QThread):
+    """「校验全部刊模式」:后台跑 audit_modes,完成回报行列表。"""
+
+    done = Signal(object)
+
+    def __init__(self, conn):
+        super().__init__()
+        self._conn = conn  # 只读用途:audit_modes 只发网络+读库
+
+    def run(self):
+        try:
+            self.done.emit(journals.audit_modes(self._conn))
+        except Exception as e:
+            self.done.emit(e)
+
+
 def _parse_terms(text: str) -> list[dict]:
     out = []
     for line in text.splitlines():
@@ -90,12 +134,15 @@ class QueriesView(QWidget):
         self.g_refine.setPlaceholderText("组内 AND 限定词,每行一条(组3 必填)")
         save = QPushButton("保存该组")
         save.clicked.connect(self._save_group)
+        test_g = QPushButton("测试该组(近 7 天真实命中)")
+        test_g.clicked.connect(self._test_group)
         form = QFormLayout()
         form.addRow("组名", self.g_name)
         form.addRow("", self.g_enabled)
         form.addRow("terms", self.g_terms)
         form.addRow("refine", self.g_refine)
         form.addRow("", save)
+        form.addRow("", test_g)
         page = QWidget()
         h = QHBoxLayout(page)
         h.addWidget(self.group_list)
@@ -170,9 +217,15 @@ class QueriesView(QWidget):
         del_btn.clicked.connect(self._del_journal)
         mode_btn = QPushButton("切换选中刊模式")
         mode_btn.clicked.connect(self._toggle_mode)
+        audit_btn = QPushButton("校验全部刊模式(实测 90 天量)")
+        audit_btn.clicked.connect(self._audit_modes)
+        export_btn = QPushButton("导出订阅")
+        export_btn.clicked.connect(self._export_subs)
+        import_btn = QPushButton("导入订阅")
+        import_btn.clicked.connect(self._import_subs)
         bar2 = QHBoxLayout()
-        bar2.addWidget(del_btn)
-        bar2.addWidget(mode_btn)
+        for b in (del_btn, mode_btn, audit_btn, export_btn, import_btn):
+            bar2.addWidget(b)
         page = QWidget()
         v = QVBoxLayout(page)
         v.addLayout(top)
@@ -270,6 +323,101 @@ class QueriesView(QWidget):
             (new, issn))
         self.conn.commit()
         self._reload_journals()
+
+    def _test_group(self) -> None:
+        """用当前编辑中的短语构造查询,发一次真实请求预览命中。"""
+        row = self.group_list.currentRow()
+        if row < 0:
+            return
+        from datetime import date, timedelta
+
+        from .. import queries as q_mod
+
+        terms = _parse_terms(self.g_terms.toPlainText())
+        refine = _parse_terms(self.g_refine.toPlainText())
+        g = q_mod.TermGroup(id=None, name=self.g_name.text().strip() or "预览",
+                            enabled=True,
+                            terms=[q_mod.Term(**t) for t in terms],
+                            refine=[q_mod.Term(**t) for t in refine])
+        if not g.terms:
+            QMessageBox.information(self, "测试该组", "请先填写至少一条短语。")
+            return
+        to = date.today()
+        fr = to - timedelta(days=7)
+        query = q_mod.to_europepmc_query(g, fr, to)
+        self.j_status.setText("测试请求中…")
+        self._tg_worker = TestGroupWorker(query)
+
+        def _show(ok, payload):
+            if ok:
+                head = (f"近 7 天命中,前 {len(payload)} 条:" if payload
+                        else "近 7 天命中 0 条(短语过窄或窗口无新文)。")
+                body = chr(10).join(f"· {t}" for t in payload)
+                QMessageBox.information(
+                    self, "测试该组", head + chr(10) + body)
+            else:
+                QMessageBox.warning(self, "测试该组", f"请求失败:{payload}")
+            self.j_status.setText("")
+
+        self._tg_worker.done.connect(_show)
+        self._tg_worker.start()
+
+    def _audit_modes(self) -> None:
+        self.j_status.setText("校验中(约 32 次请求)…")
+        self._audit_worker = AuditWorker(self.conn)
+
+        def _show(rows):
+            self.j_status.setText("")
+            if isinstance(rows, Exception):
+                QMessageBox.warning(self, "校验失败", str(rows)[:300])
+                return
+            # 表格补三列展示
+            self.j_table.setColumnCount(8)
+            self.j_table.setHorizontalHeaderLabels(
+                ["刊名", "ISSN", "模式", "路由", "启用", "90天量", "建议", "不一致"])
+            for i, r in enumerate(rows):
+                self.j_table.setItem(i, 5, QTableWidgetItem(str(r["count_90d"])))
+                self.j_table.setItem(i, 6, QTableWidgetItem(r["suggested"] or "-"))
+                self.j_table.setItem(
+                    i, 7, QTableWidgetItem("YES" if r["mismatch"] else ""))
+            mism = [r for r in rows if r["mismatch"]]
+            msg = (f"校验完成:{len(mism)} 本刊模式与建议不一致" if mism else "校验完成:全部一致")
+            QMessageBox.information(self, "模式校验", msg)
+
+        self._audit_worker.done.connect(_show)
+        self._audit_worker.start()
+
+    def _export_subs(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        data = journals.export_subscriptions(self.conn)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出订阅", "subscriptions.json", "JSON (*.json)")
+        if not path:
+            return
+        import json as _json
+
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(data, f, ensure_ascii=False, indent=1)
+        self.j_status.setText(f"已导出 {len(data['journals'])} 刊 → {path}")
+
+    def _import_subs(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入订阅", "", "JSON (*.json)")
+        if not path:
+            return
+        import json as _json
+
+        try:
+            data = _json.loads(open(path, encoding="utf-8").read())
+        except ValueError:
+            QMessageBox.warning(self, "导入失败", "JSON 解析失败。")
+            return
+        added = journals.import_subscriptions(self.conn, data)
+        self._reload_journals()
+        self.j_status.setText(f"导入完成,新增 {added} 刊(按 ISSN 去重)")
 
     # ------------------------------------------------------------- 源与 LLM
 

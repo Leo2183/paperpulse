@@ -215,3 +215,23 @@ def test_preset_journals_loading(tmp_path, monkeypatch):
 
     monkeypatch.setattr(journals, "PRESETS_DIR", tmp_path / "none")
     assert len(journals.get_default_journals()) == 32  # 内置兜底
+
+
+def test_subscription_export_import_roundtrip(conn, monkeypatch):
+    from sm_scan.sources import journals as j
+
+    monkeypatch.setattr(j.europepmc, "search",
+                        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr(j.crossref, "fetch_journal",
+                        lambda issn, a, b, mailto=None, today=None: iter([]))
+    store.seed_journals(conn, j.DEFAULT_JOURNAL_ROWS)
+    data = j.export_subscriptions(conn)
+    assert len(data["journals"]) == 32
+    # 导入:同一批重复导入不产生重复;新刊合并
+    added = j.import_subscriptions(conn, data)
+    assert added == 0
+    added2 = j.import_subscriptions(conn, {"journals": [
+        dict(name="Neuron", issn="0896-6273", mode="filter")]})
+    assert added2 == 1
+    n = conn.execute("SELECT COUNT(*) FROM journal_subscriptions").fetchone()[0]
+    assert n == 33
