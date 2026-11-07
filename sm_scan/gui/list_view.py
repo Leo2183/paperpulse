@@ -258,10 +258,30 @@ class PaperListView(QWidget):
             llm_api_key=llm.dpapi_decrypt(settings["llm_api_key"])
             if settings.get("llm_api_key") else "",
         )
-        ok, fail = llm.batch_digest(self.conn, [dict(r)], cfg)
-        self.reload()
-        self._show_detail()
-        if fail:
-            QMessageBox.information(
-                self, "生成导读",
-                "该篇生成失败(无摘要或接口错误),已跳过。")
+        from PySide6.QtCore import QThread, Signal
+
+        class _OneDigest(QThread):
+            done = Signal(int, int)
+
+            def run(self):
+                conn2 = store.connect()
+                store.init_db(conn2)
+                try:
+                    okk, faill = llm.batch_digest(conn2, [dict(r)], cfg)
+                finally:
+                    conn2.close()
+                self.done.emit(okk, faill)
+
+        self._digest_thread = _OneDigest()
+
+        def _fin(ok_n, fail_n):
+            self.btn_digest.setEnabled(True)
+            self.reload()
+            self._show_detail()
+            if fail_n:
+                QMessageBox.information(
+                    self, "生成导读", "生成失败(无摘要或接口错误)。")
+
+        self.btn_digest.setEnabled(False)
+        self._digest_thread.done.connect(_fin)
+        self._digest_thread.start()

@@ -34,7 +34,11 @@ def build(cli_name: str, entry: str, *, extra: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     # CLI(任务计划用;无窗口依赖)
-    build("sm-scan", CLI_ENTRY, extra=["--console"])
+    build("sm-scan", CLI_ENTRY, extra=[
+        "--console",
+        "--exclude-module", "PySide6",
+        "--exclude-module", "shiboken6",
+    ])
     # GUI(带窗口)
     build("sm-scan-gui", GUI_ENTRY, extra=["--windowed"])
     print("done: dist/sm-scan/")

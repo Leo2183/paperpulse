@@ -43,6 +43,22 @@ class BackfillWorker(QThread):
         self.done.emit(n)
 
 
+class FnWorker(QThread):
+    """通用后台函数执行(P2-8:主线程不再同步发 HTTP)。"""
+
+    done = Signal(object)
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def run(self):
+        try:
+            self.done.emit(self._fn())
+        except Exception as e:  # noqa: BLE001
+            self.done.emit(e)
+
+
 class TestGroupWorker(QThread):
     """「测试该组」:近 7 天真实请求,预览命中(易用性)。"""
 
@@ -251,17 +267,26 @@ class QueriesView(QWidget):
         text = self.j_add_name.text().strip()
         if not text:
             return
-        try:
+        self.j_status.setText("解析中…")
+
+        def job():
             settings = store.load_settings(self.conn)
-            matches = crossref.resolve_journal(
+            return crossref.resolve_journal(
                 text, mailto=settings.get("crossref_mailto") or None)
-        except Exception as e:  # 网络/解析失败不崩 GUI
-            self.j_status.setText(f"解析失败:{e}")
-            return
-        self.j_matches.clear()
-        for title, issn in matches[:10]:
-            self.j_matches.addItem(f"{title} [{issn}]", (title, issn))
-        self.j_status.setText(f"{len(matches)} 个匹配(精确名优先)" if matches else "未找到该刊")
+
+        def done(res):
+            if isinstance(res, Exception):
+                self.j_status.setText(f"解析失败:{res}")
+                return
+            self.j_matches.clear()
+            for title, issn in res[:10]:
+                self.j_matches.addItem(f"{title} [{issn}]", (title, issn))
+            self.j_status.setText(
+                f"{len(res)} 个匹配(精确名优先)" if res else "未找到该刊")
+
+        self._resolve_worker = FnWorker(job)
+        self._resolve_worker.done.connect(done)
+        self._resolve_worker.start()
 
     def _add_journal(self) -> None:
         idx = self.j_matches.currentIndex()
@@ -487,11 +512,24 @@ class QueriesView(QWidget):
         if not cfg:
             QMessageBox.warning(self, "未配置", "请先填写 base_url 与 model。")
             return
-        try:
-            out = llm._chat(cfg, [{"role": "user", "content": "ping"}])
-            QMessageBox.information(self, "连接成功", f"模型回复:{out[:80]}")
-        except Exception as e:
-            QMessageBox.warning(self, "连接失败", str(e)[:300])
+        btn = self.sender()
+
+        def job():
+            return llm._chat(cfg, [{"role": "user", "content": "ping"}])
+
+        def done(res):
+            if btn:
+                btn.setEnabled(True)
+            if isinstance(res, Exception):
+                QMessageBox.warning(self, "连接失败", str(res)[:300])
+            else:
+                QMessageBox.information(self, "连接成功", f"模型回复:{res[:80]}")
+
+        if btn:
+            btn.setEnabled(False)
+        self._llm_worker = FnWorker(job)
+        self._llm_worker.done.connect(done)
+        self._llm_worker.start()
 
     def _llm_cfg(self) -> dict | None:
         s = store.load_settings(self.conn)

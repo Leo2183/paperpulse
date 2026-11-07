@@ -32,6 +32,9 @@ class ScanWorker(QThread):
     finished_code = Signal(int)
 
     def run(self):
+        from ..logsetup import setup_logging
+
+        setup_logging()  # P2-14:GUI 扫描同样落 scan.log(INFO 级)
         handler = _QtLogHandler(self.log_line.emit)
         root = logging.getLogger()
         root.addHandler(handler)

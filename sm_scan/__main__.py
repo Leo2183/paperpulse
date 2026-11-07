@@ -6,18 +6,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 
-def setup_logging() -> None:
-    from . import config
-
-    handler = RotatingFileHandler(
-        config.data_dir() / "scan.log", maxBytes=1_000_000,
-        backupCount=3, encoding="utf-8",
-    )
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        handlers=[handler],
-    )
+from .logsetup import setup_logging  # noqa: F401  (re-export)
 
 
 def main(argv=None) -> int:

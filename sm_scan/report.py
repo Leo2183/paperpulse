@@ -41,7 +41,7 @@ def _tier(p: dict) -> str:
 
 def _entry(p: dict, journal_mode: dict) -> str:
     d = p["pub_date"] or "日期未知"
-    j = p["journal"] or journal_mode.get(p["subscription"] or "", "")
+    j = p["journal"] or p["subscription"] or ""  # P3-5:回退订阅名,不用模式
     tag_s = " ".join(f"`{t}`" for t in json.loads(p["tags"] or "[]"))
     mark = ""
     if p["subscription"]:
@@ -52,13 +52,13 @@ def _entry(p: dict, journal_mode: dict) -> str:
     elif p["abstract"]:
         body = "> " + " ".join(p["abstract"].split()[:ABSTRACT_WORDS])
     else:
-        body = "> 摘要未提供(Crossref)"
+        body = "> 摘要未提供"
     url = p["url"] or ""
     link = f"[DOI]({url})" if url else ""
     src = p["source"]
-    head = f"### [{d}] {p['title']} — *{j}* {tag_s} {mark}".rstrip()
-    return (f"{head}\n{p['authors'] or ''} | {link} | 来源 {src} {mark}".rstrip()
-            + f"\n{body}\n")
+    head = f'### [{d}] {p["title"]} — *{j}* {tag_s} {mark}'.rstrip()
+    tail = (f'{p["authors"] or ""} | {link} | 来源 {src}').rstrip()
+    return head + '\n' + tail + '\n' + body + '\n'
 
 
 def _count(day: list[dict], pred) -> int:
@@ -158,7 +158,9 @@ def export_todo(conn, for_date: date | None = None) -> Path:
     lines = [f"# 待精读清单 {for_date.isoformat()}({len(rows)} 篇)", ""]
     for r in rows:
         digest = f" — {r['llm_digest']}" if r["llm_digest"] else ""
-        lines.append(f"- [{r['title']}]({r['url'] or r['doi'] or ''}){digest}")
+        link = r["url"] or (f"https://doi.org/{r['doi']}" if r["doi"] else "")
+        item = f"- [{r['title']}]({link})" if link else f"- {r['title']}"
+        lines.append(item + digest)
     lines.append("")
     path = config.reports_dir() / f"todo-reading-{for_date.isoformat()}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
