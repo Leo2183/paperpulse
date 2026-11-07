@@ -191,7 +191,7 @@ class ScanView(QWidget):
             self.digest_status.setText("没有符合条件的待导读论文。")
             return
         self.btn_digest.setEnabled(False)
-        self._digest_worker = DigestWorker(self.conn, papers, cfg)
+        self._digest_worker = DigestWorker(papers, cfg)
         self._digest_worker.progress.connect(
             lambda d, t: self.digest_status.setText(f"导读中…{d}/{t}"))
         self._digest_worker.done.connect(self._digest_done)

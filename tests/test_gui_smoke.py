@@ -203,3 +203,33 @@ def test_workers_use_own_connection(win, monkeypatch):
     t2.start()
     t2.join(timeout=30)
     assert not errors
+
+
+def test_digest_button_to_worker_seam(win, monkeypatch):
+    """P0-2 接缝:批量导读按钮 → DigestWorker 构造参数必须匹配签名。"""
+    from sm_scan.gui import scan_view as sv_mod
+
+    store.upsert_paper(win.conn, store.Paper(
+        id="10.5/z", doi="10.5/z", pmcid=None, title="For seam", authors=None,
+        journal="J", pub_date="2026-11-02", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs text", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest=None,
+        first_seen="2026-11-07T09:00:00", updated_at=None))
+    store.save_setting(win.conn, "llm_base_url", "https://x/v4")
+    store.save_setting(win.conn, "llm_model", "m")
+
+    built = {}
+
+    class FakeWorker:
+        def __init__(self, *args):
+            built["args"] = args
+
+        def start(self):
+            built["started"] = True
+
+    monkeypatch.setattr(sv_mod, "DigestWorker", FakeWorker)
+    win.scan_view._start_digest()
+    assert built.get("args") and len(built["args"]) == 2, \
+        "调用点必须以 (papers, cfg) 两参构造 DigestWorker"
+    assert built.get("started")
