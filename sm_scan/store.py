@@ -207,11 +207,13 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
         old_groups = set(json.loads(row["matched_groups"]))
         sub = row["subscription"] or p["subscription"]  # 首次非空写入
         conn.execute(
-            "UPDATE papers SET abstract=COALESCE(?, abstract), url=?,"
+            "UPDATE papers SET abstract=COALESCE(?, abstract),"
+            " url=COALESCE(?, url), journal=COALESCE(?, journal),"
+            " indexed_date=COALESCE(?, indexed_date),"
             " updated_at=?, sources=?,"
             " subscription=?, matched_groups=? WHERE id=?",
             (
-                p["abstract"], p["url"], now,
+                p["abstract"], p["url"], p["journal"], p["indexed_date"], now,
                 json.dumps(sorted(old_sources | set(p["sources"]))),
                 sub,
                 json.dumps(sorted(old_groups | set(p["matched_groups"]))),

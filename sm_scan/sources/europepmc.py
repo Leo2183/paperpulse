@@ -30,20 +30,28 @@ def _to_paper(r: dict) -> store.Paper:
     doi = engine.normalize_doi(r.get("doi"))
     title = (r.get("title") or "").strip()
     url = f"https://doi.org/{doi}" if doi else None
+    # 字段名对齐真实 core 响应(第06轮 P0-1):
+    # journalInfo.journal.title / firstIndexDate(顶层 journalTitle/firstIndexationDate 不存在)
+    journal = (r.get("journalInfo") or {}).get("journal", {}).get("title")
+    abstract = r.get("abstractText")
+    if abstract and "<" in abstract:  # P2-13: 剥 <h4> 等 HTML 标签
+        import html as _html
+        import re as _re
+        abstract = _html.unescape(_re.sub(r"<[^>]+>", "", abstract)).strip()
     return store.Paper(
         id=engine.paper_key(doi, title),
         doi=doi,
         pmcid=r.get("pmcid"),
         title=title,
         authors=_authors_display(r.get("authorString")),
-        journal=r.get("journalTitle"),
+        journal=journal,
         pub_date=r.get("firstPublicationDate"),
-        indexed_date=r.get("firstIndexationDate"),
+        indexed_date=r.get("firstIndexDate"),
         source="europepmc",
         sources=["europepmc"],
         subscription=None,
         url=url,
-        abstract=(r.get("abstractText") or None),
+        abstract=abstract or None,
         tags=[],
         matched_groups=[],
         status="unread",

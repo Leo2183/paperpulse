@@ -1,20 +1,712 @@
 {
-  "version": "6.9",
-  "hitCount": 2,
-  "resultList": {
-    "result": [
+ "version": "6.9",
+ "hitCount": 4,
+ "resultList": {
+  "result": [
+   {
+    "id": "42951528",
+    "source": "MED",
+    "pmid": "42951528",
+    "doi": "10.1016/j.aca.2026.346280",
+    "title": "Synergistically fluorinated triazine COFs as adsorption-ionization integrated matrix for analysis and in situ MALDI imaging of PFOS.",
+    "authorString": "Jiang JC, Zhang KX, Feng ZY, Jiang J, Jin B, Meng LY.",
+    "authorList": {
+     "author": [
       {
-        "id": "401", "source": "MED", "pmid": "401", "pmcid": "PMC401",
-        "doi": "10.1/a",
-        "title": "Paper A about MALDI imaging",
-        "abstractText": "Abstract A.",
-        "authorString": "Alice A, Bob B, Carol C;",
-        "journalTitle": "Journal A",
-        "firstPublicationDate": "2026-11-01",
-        "firstIndexationDate": "2026-11-02",
-        "isOpenAccess": "Y"
+       "fullName": "Jiang JC",
+       "lastName": "Jiang",
+       "firstName": "Jin-Chi",
+       "initials": "JC",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Department of Chemistry, Yanbian University, Park Road 977, Yanji, 133002, PR China."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Zhang KX",
+       "lastName": "Zhang",
+       "firstName": "Ke-Xin",
+       "initials": "KX",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Key Laboratory of Natural Medicines of the Changbai Mountain, Ministry of Education, Yanbian University, Park Road 977, Yanji, Jilin, 133002, PR China."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Feng ZY",
+       "lastName": "Feng",
+       "firstName": "Zhi-Yuan",
+       "initials": "ZY",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Department of Chemistry, Yanbian University, Park Road 977, Yanji, 133002, PR China."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Jiang J",
+       "lastName": "Jiang",
+       "firstName": "Jun",
+       "initials": "J",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Key Innovation Laboratory for Deep and Intensive Processing of Yanbian High Quality Beef, Ministry of Agriculture and Rural Affairs, Yanbian University, Park Road 977, Yanji, Jilin, 133002, PR China. Electronic address: jiangjun@ybu.edu.cn."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Jin B",
+       "lastName": "Jin",
+       "firstName": "Biao",
+       "initials": "B",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Analysis and Test Center, Yanbian University, Park Road 977, Yanji, 133002, PR China. Electronic address: jinbiao@ybu.edu.cn."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Meng LY",
+       "lastName": "Meng",
+       "firstName": "Long-Yue",
+       "initials": "LY",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Department of Chemistry, Yanbian University, Park Road 977, Yanji, 133002, PR China. Electronic address: lymeng@ybu.edu.cn."
+         }
+        ]
+       }
       }
-    ]
-  },
-  "nextCursorMark": "CUR2"
+     ]
+    },
+    "journalInfo": {
+     "volume": "1425",
+     "journalIssueId": 4300397,
+     "dateOfPublication": "2026 Dec",
+     "monthOfPublication": 12,
+     "yearOfPublication": 2026,
+     "journal": {
+      "medlineAbbreviation": "Anal Chim Acta",
+      "title": "Analytica chimica acta",
+      "essn": "1873-4324",
+      "issn": "0003-2670",
+      "isoabbreviation": "Anal Chim Acta",
+      "nlmid": "0370534"
+     },
+     "printPublicationDate": "2026-12-01"
+    },
+    "pubYear": "2026",
+    "pageInfo": "346280",
+    "abstractText": "<h4>Background</h4>Per- and polyfluoroalkyl substances (PFASs), like perfluorooctane sulfonic acid (PFOS), will accumulate continuously in organisms and pose toxic risks. Matrix-assisted laser desorption ionization mass spectrometry imaging (MALDI-MSI) is an effective method for analyzing their biological accumulation characteristics and microscopic spatial distribution. Currently, traditional organic matrices lack specific enrichment capabilities for PFOS, while inorganic adsorption matrices are prone to damaging the ion source. Therefore, the development of organic matrices with dual functions of adsorption and ionization is necessary to overcome these limitations and achieve high-sensitivity in situ MSI of trace PFOS in biological tissues.<h4>Result</h4>A novel MALDI matrix for ultrasensitive detection and in situ tissue imaging of trace PFOS was developed, using fluorine-engineered triazine covalent organic framework TAPT-DFTA fabricated by Schiff-base condensation as an integrated adsorption-ionization matrix. Featuring a sea urchin-like nanostructure and a high specific surface area of 1057.50 m<sup>2</sup>/g, TAPT-DFTA delivers excellent detection reproducibility with signal RSD values lower than 6.3%. DFT simulations confirm its spontaneous PFOS capture driven by synergistic F-F interactions and hydrophobic forces. Under optimized conditions, it achieves a monolayer adsorption capacity of 63.33 mg/g and an ultralow PFOS LOD of 100 pg/mL, alongside robust salt tolerance and strong anti-interference performance toward biological macromolecules. The matrix further supports high-spatial-resolution MALDI imaging to clearly map PFOS accumulation and spatial distribution in mouse kidney and brain tissues.<h4>Significance</h4>This work innovatively constructs fluorinated triazine COFs TAPT-DFTA via fluorine engineering to integrate PFOS adsorption and MALDI ionization, breaking single-function drawbacks of traditional matrices. This fluorination tuning strategy balances framework laser stability and energy transfer efficiency, resolving the core trade-off problem that restricts COFs-based MALDI matrix performance. It achieves ppt-level PFOS detection and tissue in-situ imaging, offering a new paradigm for trace persistent organic pollutant spatial analysis.",
+    "affiliation": "Department of Chemistry, Yanbian University, Park Road 977, Yanji, 133002, PR China.",
+    "publicationStatus": "ppublish",
+    "language": "eng",
+    "pubModel": "Print-Electronic",
+    "pubTypeList": {
+     "pubType": [
+      "Journal Article"
+     ]
+    },
+    "meshHeadingList": {
+     "meshHeading": [
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Animals"
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Mice"
+      },
+      {
+       "majorTopic_YN": "Y",
+       "descriptorName": "Alkanesulfonic Acids",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "AN",
+          "qualifierName": "analysis"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "Y",
+       "descriptorName": "Fluorocarbons",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "AN",
+          "qualifierName": "analysis"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "Y",
+       "descriptorName": "Triazines",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "CH",
+          "qualifierName": "chemistry"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "Y",
+       "descriptorName": "Spectrometry, Mass, Matrix-Assisted Laser Desorption-Ionization",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "MT",
+          "qualifierName": "methods"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Adsorption"
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Halogenation"
+      }
+     ]
+    },
+    "keywordList": {
+     "keyword": [
+      "MALDI-TOF MS",
+      "Imaging",
+      "Pfos",
+      "Fluorine Engineering Strategy",
+      "Functional Cofs"
+     ]
+    },
+    "chemicalList": {
+     "chemical": [
+      {
+       "name": "Triazines",
+       "registryNumber": "0"
+      },
+      {
+       "name": "Fluorocarbons",
+       "registryNumber": "0"
+      },
+      {
+       "name": "Alkanesulfonic Acids",
+       "registryNumber": "0"
+      },
+      {
+       "name": "perfluorooctane sulfonic acid",
+       "registryNumber": "9H2MAI21CL"
+      }
+     ]
+    },
+    "subsetList": {
+     "subset": [
+      {
+       "code": "IM",
+       "name": "Index Medicus"
+      }
+     ]
+    },
+    "fullTextUrlList": {
+     "fullTextUrl": [
+      {
+       "availability": "Subscription required",
+       "availabilityCode": "S",
+       "documentStyle": "doi",
+       "site": "DOI",
+       "url": "https://doi.org/10.1016/j.aca.2026.346280"
+      }
+     ]
+    },
+    "isOpenAccess": "N",
+    "inEPMC": "N",
+    "inPMC": "N",
+    "citedByCount": 0,
+    "hasReferences": "N",
+    "hasTextMinedTerms": "N",
+    "hasDbCrossReferences": "N",
+    "hasPDF": "N",
+    "hasBook": "N",
+    "hasSuppl": "N",
+    "hasLabsLinks": "N",
+    "hasData": "N",
+    "authMan": "N",
+    "epmcAuthMan": "N",
+    "nihAuthMan": "N",
+    "hasTMAccessionNumbers": "N",
+    "dateOfCompletion": "2026-10-28",
+    "dateOfCreation": "2026-10-28",
+    "dateOfRevision": "2026-10-28",
+    "electronicPublicationDate": "2026-09-19",
+    "firstPublicationDate": "2026-09-19",
+    "firstIndexDate": "2026-10-29",
+    "hasEvaluations": "N"
+   },
+   {
+    "id": "42916751",
+    "source": "MED",
+    "pmid": "42916751",
+    "pmcid": "PMC13651598",
+    "fullTextIdList": {
+     "fullTextId": [
+      "PMC13651598"
+     ]
+    },
+    "doi": "10.1021/jasms.6c00219",
+    "title": "Ionic Solid Matrices Applied via Low-Temperature Evaporation Enable High-Resolution and Sensitive MALDI Imaging of Metabolites.",
+    "authorString": "Mahamdi T, Moltó N, Arasa M, Giné R, Rofes J, García-Altares M, Vinaixa M, Yanes O.",
+    "authorList": {
+     "author": [
+      {
+       "fullName": "Mahamdi T",
+       "lastName": "Mahamdi",
+       "firstName": "Toufik",
+       "initials": "T",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0001-7132-0106"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Moltó N",
+       "lastName": "Moltó",
+       "firstName": "Nadia",
+       "initials": "N",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Arasa M",
+       "lastName": "Arasa",
+       "firstName": "Mireia",
+       "initials": "M",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Giné R",
+       "lastName": "Giné",
+       "firstName": "Roger",
+       "initials": "R",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0003-0288-9619"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Rofes J",
+       "lastName": "Rofes",
+       "firstName": "Jordi",
+       "initials": "J",
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "García-Altares M",
+       "lastName": "García-Altares",
+       "firstName": "María",
+       "initials": "M",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0003-4255-1487"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Vinaixa M",
+       "lastName": "Vinaixa",
+       "firstName": "Maria",
+       "initials": "M",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0001-9804-0171"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         },
+         {
+          "affiliation": "Metabolomics Platform, Institut de Recerca Biomèdica Catalunya Sud, Hospital Universitari Sant Joan de Reus, Reus43204, Spain."
+         }
+        ]
+       }
+      },
+      {
+       "fullName": "Yanes O",
+       "lastName": "Yanes",
+       "firstName": "Oscar",
+       "initials": "O",
+       "authorId": {
+        "type": "ORCID",
+        "value": "0000-0003-3695-7157"
+       },
+       "authorAffiliationDetailsList": {
+        "authorAffiliation": [
+         {
+          "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain."
+         },
+         {
+          "affiliation": "CIBER de Diabetes y Enfermedades Metabólicas Asociadas (CIBERDEM), Instituto de Salud Carlos III, Madrid28029, Spain."
+         },
+         {
+          "affiliation": "Metabolomics Platform, Institut de Recerca Biomèdica Catalunya Sud, Hospital Universitari Sant Joan de Reus, Reus43204, Spain."
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "authorIdList": {
+     "authorId": [
+      {
+       "type": "ORCID",
+       "value": "0000-0001-7132-0106"
+      },
+      {
+       "type": "ORCID",
+       "value": "0000-0001-9804-0171"
+      },
+      {
+       "type": "ORCID",
+       "value": "0000-0003-0288-9619"
+      },
+      {
+       "type": "ORCID",
+       "value": "0000-0003-3695-7157"
+      },
+      {
+       "type": "ORCID",
+       "value": "0000-0003-4255-1487"
+      }
+     ]
+    },
+    "journalInfo": {
+     "issue": "10",
+     "volume": "37",
+     "journalIssueId": 4297795,
+     "dateOfPublication": "2026 Oct",
+     "monthOfPublication": 10,
+     "yearOfPublication": 2026,
+     "journal": {
+      "medlineAbbreviation": "J Am Soc Mass Spectrom",
+      "title": "Journal of the American Society for Mass Spectrometry",
+      "essn": "1879-1123",
+      "issn": "1044-0305",
+      "isoabbreviation": "J Am Soc Mass Spectrom",
+      "nlmid": "9010412"
+     },
+     "printPublicationDate": "2026-10-01"
+    },
+    "pubYear": "2026",
+    "pageInfo": "2463-2471",
+    "abstractText": "Matrix-Assisted Laser Desorption/Ionization Mass Spectrometry Imaging (MALDI-MSI) enables spatially resolved molecular analysis of biological tissues. However, imaging low-molecular-weight metabolites remains challenging because conventional organic matrices generate intense background signals in the low m/z region. Ionic matrices can reduce matrix-related interferences, improve spectral reproducibility, and enhance sensitivity. However, their application in MALDI-MSI has remained limited, largely due to the need for additional matrix preparation and the challenging wet deposition of viscous ionic liquid matrices, and has mainly focused on lipid imaging above m/z 500. Here, we present a novel approach combining ionic solid matrices (ISMs) with low-temperature thermal evaporation (LTE) to enhance MALDI-MSI performance for small metabolites. ISMs based on α-cyano-4-hydroxycinnamic acid (CHCA) and 2,5-dihydroxybenzoic acid (DHB) provided superior sensitivity and reduced matrix background. In particular, CHCA + N,N-diethylaniline enabled the detection and annotation of 69 metabolites with m/z < 500 in mouse brain tissue at 20 μm spatial resolution. When applied to mouse pancreas, this ISM allowed the first specific localization of melatonin and 3-iodotyrosine within the islets of Langerhans, opening new avenues for spatial metabolomics in endocrine research.",
+    "affiliation": "Universitat Rovira i Virgili , Department of Electronic Engineering, Tarragona43007, Spain.",
+    "publicationStatus": "ppublish",
+    "language": "eng",
+    "pubModel": "Print",
+    "pubTypeList": {
+     "pubType": [
+      "research-article",
+      "Journal Article"
+     ]
+    },
+    "grantsList": {
+     "grant": [
+      {
+       "agency": "H2020 Marie Sklodowska-Curie Actions",
+       "grantId": "10108639",
+       "orderIn": 0
+      },
+      {
+       "agency": "NextGenerationEU",
+       "grantId": "TED2021-132635B-I00",
+       "orderIn": 0
+      },
+      {
+       "agency": "Ministerio de Ciencia e Innovaci?n",
+       "grantId": "CPP2022-010039",
+       "orderIn": 0
+      },
+      {
+       "agency": "Ministerio de Ciencia e Innovaci?n",
+       "grantId": "PID2022-136226OB-I00",
+       "orderIn": 0
+      },
+      {
+       "agency": "European Regional Development Fund",
+       "grantId": "PID2022-136226OB-I00",
+       "orderIn": 0
+      },
+      {
+       "agency": "Universitat Rovira i Virgili",
+       "grantId": "PRE2019-089374",
+       "orderIn": 0
+      }
+     ]
+    },
+    "meshHeadingList": {
+     "meshHeading": [
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Brain",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "DG",
+          "qualifierName": "diagnostic imaging"
+         },
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "ME",
+          "qualifierName": "metabolism"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Animals"
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Mice"
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Gentisates",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "CH",
+          "qualifierName": "chemistry"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Coumaric Acids",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "CH",
+          "qualifierName": "chemistry"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "Y",
+       "descriptorName": "Spectrometry, Mass, Matrix-Assisted Laser Desorption-Ionization",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "MT",
+          "qualifierName": "methods"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Brain Chemistry"
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Ionic Liquids",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "CH",
+          "qualifierName": "chemistry"
+         }
+        ]
+       }
+      },
+      {
+       "majorTopic_YN": "N",
+       "descriptorName": "Metabolomics",
+       "meshQualifierList": {
+        "meshQualifier": [
+         {
+          "majorTopic_YN": "N",
+          "abbreviation": "MT",
+          "qualifierName": "methods"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "keywordList": {
+     "keyword": [
+      "MALDI",
+      "Mass Spectrometry Imaging",
+      "Spatial Metabolomics",
+      "Ionic Matrix"
+     ]
+    },
+    "chemicalList": {
+     "chemical": [
+      {
+       "name": "alpha-cyano-4-hydroxycinnamate",
+       "registryNumber": "28166-41-8"
+      },
+      {
+       "name": "Gentisates",
+       "registryNumber": "0"
+      },
+      {
+       "name": "Coumaric Acids",
+       "registryNumber": "0"
+      },
+      {
+       "name": "Ionic Liquids",
+       "registryNumber": "0"
+      },
+      {
+       "name": "2,5-dihydroxybenzoic acid",
+       "registryNumber": "VP36V95O3T"
+      }
+     ]
+    },
+    "subsetList": {
+     "subset": [
+      {
+       "code": "IM",
+       "name": "Index Medicus"
+      }
+     ]
+    },
+    "fullTextUrlList": {
+     "fullTextUrl": [
+      {
+       "availability": "Subscription required",
+       "availabilityCode": "S",
+       "documentStyle": "doi",
+       "site": "DOI",
+       "url": "https://doi.org/10.1021/jasms.6c00219"
+      },
+      {
+       "availability": "Open access",
+       "availabilityCode": "OA",
+       "documentStyle": "html",
+       "site": "Europe_PMC",
+       "url": "https://europepmc.org/articles/PMC13651598"
+      },
+      {
+       "availability": "Open access",
+       "availabilityCode": "OA",
+       "documentStyle": "pdf",
+       "site": "Europe_PMC",
+       "url": "https://europepmc.org/articles/PMC13651598?pdf=render"
+      }
+     ]
+    },
+    "isOpenAccess": "Y",
+    "inEPMC": "Y",
+    "inPMC": "Y",
+    "citedByCount": 0,
+    "hasReferences": "Y",
+    "hasTextMinedTerms": "Y",
+    "hasDbCrossReferences": "N",
+    "hasPDF": "Y",
+    "hasBook": "N",
+    "hasSuppl": "Y",
+    "hasLabsLinks": "N",
+    "hasData": "Y",
+    "license": "cc by",
+    "authMan": "N",
+    "epmcAuthMan": "N",
+    "nihAuthMan": "N",
+    "hasTMAccessionNumbers": "N",
+    "dateOfCompletion": "2026-10-23",
+    "dateOfCreation": "2026-10-23",
+    "dateOfRevision": "2026-10-25",
+    "firstPublicationDate": "2026-10-01",
+    "firstIndexDate": "2026-10-25",
+    "fullTextReceivedDate": "2026-10-10",
+    "hasEvaluations": "N"
+   }
+  ]
+ },
+ "nextCursorMark": "NEXT"
 }
