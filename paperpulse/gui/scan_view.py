@@ -45,7 +45,7 @@ class ScanWorker(QThread):
                 conn = store.connect()
                 report.generate(conn, engine.last_report_date(conn))
             except Exception:
-                self.log_line.emit("日报生成失败(可稍后 sm_scan report 重试)")
+                self.log_line.emit("日报生成失败(可稍后 paperpulse report 重试)")
         except Exception as e:  # P2-6:非 SourceError 也必须收尾,防按钮永久禁用
             self.log_line.emit(f"扫描异常终止:{e}")
         finally:
@@ -172,7 +172,7 @@ class ScanView(QWidget):
     def _reload_task_status(self) -> None:
         info = task.status()
         self.task_status.setText(
-            "定时任务:已注册(sm-scan-daily,每日 09:00,仅登录时运行)"
+            "定时任务:已注册(paperpulse-daily,每日 09:00,仅登录时运行)"
             if info["registered"] else "定时任务:未注册")
 
     # ------------------------------------------------------------- 导读

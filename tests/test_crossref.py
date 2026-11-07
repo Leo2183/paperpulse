@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from sm_scan.sources import crossref
+from paperpulse.sources import crossref
 
 FIX = Path(__file__).parent / "fixtures"
 

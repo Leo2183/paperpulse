@@ -1,4 +1,4 @@
-from sm_scan.sources import base
+from paperpulse.sources import base
 
 
 def test_request_retries_on_exception(monkeypatch):

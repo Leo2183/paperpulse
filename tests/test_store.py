@@ -2,12 +2,12 @@ import sqlite3
 
 import pytest
 
-from sm_scan import store
+from paperpulse import store
 
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()
@@ -170,7 +170,7 @@ def test_upsert_stale_column(conn):
 
 def test_migration_v1_to_v2_group_ids_and_stale(tmp_path, monkeypatch):
     """P1-2/P1-3 存量迁移:加 stale 列;matched_groups 组名 → 组 id。"""
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     import sqlite3

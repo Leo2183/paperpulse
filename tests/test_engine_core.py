@@ -1,6 +1,6 @@
 from datetime import date
 
-from sm_scan import engine
+from paperpulse import engine
 
 
 def test_normalize_doi_variants():

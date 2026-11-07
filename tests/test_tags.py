@@ -1,5 +1,5 @@
-from sm_scan import tags
-from sm_scan.queries import DEFAULT_GROUPS
+from paperpulse import tags
+from paperpulse.queries import DEFAULT_GROUPS
 
 G3 = next(g for g in DEFAULT_GROUPS if g.name == "产物注释")
 G3_PHRASES = [t.phrase for t in G3.terms]

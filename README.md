@@ -22,19 +22,19 @@ pip install -e .[dev]
 pytest                       # 129 用例,离线
 ```
 
-> 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import sm_scan` 静默失败(pythonw 无控制台)。
+> 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import paperpulse` 静默失败(pythonw 无控制台)。
 
 ## 使用
 
 | 命令 | 作用 |
 |---|---|
-| `python -m sm_scan scan --dry-run` | 打印三轨请求串与窗口,不落库 |
-| `python -m sm_scan scan` | 三轨扫描入库并生成当日日报 |
-| `python -m sm_scan scan --days 40 --llm` | 扩大窗口 + 批量中文导读(需先配置 LLM) |
-| `python -m sm_scan journals` | 逐刊审计 90 天实测发文量 vs 当前模式(约 32 次请求) |
-| `python -m sm_scan gui` | 四视图 GUI |
-| `python -m sm_scan report --date 2026-11-07` | 重生成某日日报 |
-| `python -m sm_scan task register` | 注册每日 09:00 任务计划(sm-scan-daily) |
+| `python -m paperpulse scan --dry-run` | 打印三轨请求串与窗口,不落库 |
+| `python -m paperpulse scan` | 三轨扫描入库并生成当日日报 |
+| `python -m paperpulse scan --days 40 --llm` | 扩大窗口 + 批量中文导读(需先配置 LLM) |
+| `python -m paperpulse journals` | 逐刊审计 90 天实测发文量 vs 当前模式(约 32 次请求) |
+| `python -m paperpulse gui` | 四视图 GUI |
+| `python -m paperpulse report --date 2026-11-07` | 重生成某日日报 |
+| `python -m paperpulse task register` | 注册每日 09:00 任务计划(paperpulse-daily) |
 
 退出码:`0`=ok,`2`=partial(部分轨道失败),`3`=failed。
 
@@ -44,7 +44,7 @@ pytest                       # 129 用例,离线
 
 ### 首次运行预期
 
-首跑回填约 30 天窗口(实测约 10 分钟量级,取决于网络抖动与重试),日常窗口每次 1-2 分钟。GUI「订阅期刊」页可按刊名解析 ISSN、自动建议模式并回填 90 天;`sm_scan journals` 可批量审计模式配置。
+首跑回填约 30 天窗口(实测约 10 分钟量级,取决于网络抖动与重试),日常窗口每次 1-2 分钟。GUI「订阅期刊」页可按刊名解析 ISSN、自动建议模式并回填 90 天;`paperpulse journals` 可批量审计模式配置。
 
 ### 日报结构(`reports/YYYY-MM-DD.md`)
 
@@ -61,7 +61,7 @@ pip install pyinstaller
 python build.py
 ```
 
-产出两个整目录(各自拷走即用):`dist/sm-scan/sm-scan.exe`(CLI,任务计划指向它)、`dist/sm-scan-gui/sm-scan-gui.exe`(界面)。数据目录在 exe 旁的 `data/`、`reports/`。
+产出两个整目录(各自拷走即用):`dist/paperpulse/paperpulse.exe`(CLI,任务计划指向它)、`dist/paperpulse-gui/paperpulse-gui.exe`(界面)。数据目录在 exe 旁的 `data/`、`reports/`。
 
 ## 数据
 

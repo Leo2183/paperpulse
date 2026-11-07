@@ -1,6 +1,6 @@
 from datetime import date
 
-from sm_scan import queries
+from paperpulse import queries
 
 
 def test_translate_group1_with_refine_and_date():

@@ -28,4 +28,4 @@ paperpulse 的默认检索组与订阅期刊不再硬编码在代码里,而是�
   (或建第二份 JSON 并换名排序靠前)
 - 短语 `scope`:`title_abs`(标题+摘要,默认)或 `title`(歧义缩写仅标题,如裸 MSI)
 - 加刊建议先在 GUI 里用「解析」按刊名查 ISSN,mode 参考 90 天发文量
-  (≤300 建议 full,>300 建议 filter;`sm_scan journals` 可批量审计)
+  (≤300 建议 full,>300 建议 filter;`paperpulse journals` 可批量审计)

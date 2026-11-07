@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from sm_scan.sources import europepmc
-from sm_scan.sources.base import SourceError
+from paperpulse.sources import europepmc
+from paperpulse.sources.base import SourceError
 
 FIX = Path(__file__).parent / "fixtures"
 

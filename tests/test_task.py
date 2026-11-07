@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from sm_scan import task
+from paperpulse import task
 
 
 @pytest.fixture
 def root(tmp_path, monkeypatch):
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     return tmp_path
@@ -87,17 +87,17 @@ def test_register_success_list_form_no_shell_escape(root, monkeypatch):
     cmd = seen["cmd"]
     assert isinstance(cmd, list)  # 列表形式、不经 shell
     assert cmd[0] == "schtasks"
-    assert "/TN" in cmd and "sm-scan-daily" in cmd
+    assert "/TN" in cmd and "paperpulse-daily" in cmd
     tr = cmd[cmd.index("/TR") + 1]
     assert '\\"' not in tr  # 无批处理转义残留
     assert seen["kw"].get("shell") is None  # 不经 shell
 
 
 def test_cli_exit_code_passthrough(monkeypatch):
-    from sm_scan import __main__ as main_mod
+    from paperpulse import __main__ as main_mod
 
     monkeypatch.setattr(main_mod, "setup_logging", lambda: None)
-    monkeypatch.setattr("sm_scan.engine.run_scan", lambda **kw: 3)
+    monkeypatch.setattr("paperpulse.engine.run_scan", lambda **kw: 3)
     assert main_mod.main(["scan"]) == 3
 
 
@@ -106,12 +106,12 @@ def test_scan_command_frozen_points_to_cli_dir(monkeypatch):
     import sys as _sys
     from pathlib import Path
 
-    fake_gui = Path("D:/fake/dist/sm-scan-gui/sm-scan-gui.exe")
+    fake_gui = Path("D:/fake/dist/paperpulse-gui/paperpulse-gui.exe")
     monkeypatch.setattr(_sys, "frozen", True, raising=False)
     monkeypatch.setattr(_sys, "executable", str(fake_gui))
     cmd = task._scan_command()
-    assert "sm-scan-gui" not in cmd
-    assert "sm-scan" in cmd
+    assert "paperpulse-gui" not in cmd
+    assert "paperpulse" in cmd
 
 
 def test_register_refuses_when_target_missing(monkeypatch):
@@ -119,7 +119,7 @@ def test_register_refuses_when_target_missing(monkeypatch):
 
     monkeypatch.setattr(task, "_selfcheck", lambda: (True, ""))
     monkeypatch.setattr(task, "_scan_command",
-                        lambda: r'"D:\no\such\sm-scan.exe" scan')
+                        lambda: r'"D:\no\such\paperpulse.exe" scan')
 
     def fake_run(cmd, **kw):
         class R:
@@ -135,3 +135,29 @@ def test_register_refuses_when_target_missing(monkeypatch):
     ok, msg = task.register()
     assert ok is False
     assert not seen  # 目标不存在时不得调 schtasks
+
+
+def test_register_command_flags_appear_once(monkeypatch):
+    """防回归:cmd 不得重复插入 flag(P1-5 补丁曾双份,schtasks 拒绝)。"""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    import subprocess as sp
+
+    monkeypatch.setattr(task, "_selfcheck", lambda: (True, ""))
+    import sys
+    monkeypatch.setattr(task, "_scan_command",
+                        lambda: f'"{sys.executable}" -m paperpulse scan')
+    monkeypatch.setattr(sp, "run", fake_run)
+    ok, _ = task.register()
+    assert ok is True
+    cmd = seen["cmd"]
+    assert cmd.count("/Create") == 1 and cmd.count("/TR") == 1

@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from sm_scan import engine, store
+from paperpulse import engine, store
 
 
 def _paper(pid, title, abstract="Abs.", **kw):
@@ -21,7 +21,7 @@ def _paper(pid, title, abstract="Abs.", **kw):
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()
@@ -32,9 +32,9 @@ def conn(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_other_tracks(monkeypatch):
     """默认把订阅与 biorxiv 轨道 mock 为空,防测试触真实网络;个别测试再覆盖。"""
-    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+    monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: iter([]))
-    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+    monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
                         lambda a, b, g: iter([]))
 
 
@@ -50,7 +50,7 @@ def test_topic_scan_union_dedup_and_group_accumulation(conn, monkeypatch, capsys
         calls.append(query)
         return iter(queues.pop(0))
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn)
     assert rc == 0
     assert len(calls) == 3  # 三组各一次
@@ -71,7 +71,7 @@ def test_dry_run_prints_no_write(conn, monkeypatch, capsys):
     def fake_search(query, d_from, d_to, page_size=100):
         return iter([_paper("10.1/x", "X")])
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn, dry_run=True)
     out = capsys.readouterr().out
     assert rc == 0
@@ -80,12 +80,12 @@ def test_dry_run_prints_no_write(conn, monkeypatch, capsys):
 
 
 def test_topic_track_only_fail_is_partial(conn, monkeypatch):
-    from sm_scan.sources.base import SourceError
+    from paperpulse.sources.base import SourceError
 
     def fake_search(query, d_from, d_to, page_size=100):
         raise SourceError("down")
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn)
     assert rc == 2  # 仅主题轨失败,其余轨道空跑成功 → partial
     run = conn.execute("SELECT status FROM runs ORDER BY id DESC").fetchone()
@@ -94,7 +94,7 @@ def test_topic_track_only_fail_is_partial(conn, monkeypatch):
 
 def test_seeds_default_groups_on_first_run(conn, monkeypatch):
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([]),
     )
     engine.run_scan(conn=conn)
@@ -110,14 +110,14 @@ def test_disabled_source_skipped(conn, monkeypatch):
         called.append(query)
         return iter([])
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn)
     assert rc == 0
     assert called == []
 
 
 def test_subscription_track_integration(conn, monkeypatch):
-    from sm_scan.sources import journals as journals_mod
+    from paperpulse.sources import journals as journals_mod
 
     p1 = _paper("10.5/a", "Nature paper on metabolism", source="europepmc")
     p2 = _paper("10.5/b", "Old registered paper", source="crossref")
@@ -128,10 +128,10 @@ def test_subscription_track_integration(conn, monkeypatch):
         yield (p1, jrow)
         yield (p2, jrow)
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+    monkeypatch.setattr("paperpulse.sources.europepmc.search",
                         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(journals_mod, "scan_journals", fake_scan_journals)
-    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+    monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
                         lambda a, b, g: iter([]))
     rc = engine.run_scan(conn=conn)
     assert rc == 0
@@ -145,13 +145,13 @@ def test_subscription_track_integration(conn, monkeypatch):
 
 
 def test_biorxiv_track_integration(conn, monkeypatch):
-    from sm_scan.sources import biorxiv as brx
+    from paperpulse.sources import biorxiv as brx
 
     preprint = _paper("10.1101/x", "Spatial metabolomics preprint",
                       source="biorxiv", matched_groups=["植物+空间成像"])
-    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+    monkeypatch.setattr("paperpulse.sources.europepmc.search",
                         lambda q, a, b, page_size=100: iter([]))
-    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+    monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: iter([]))
     monkeypatch.setattr(brx, "scan", lambda a, b, g: iter([preprint]))
     rc = engine.run_scan(conn=conn)
@@ -161,13 +161,13 @@ def test_biorxiv_track_integration(conn, monkeypatch):
 
 
 def test_all_tracks_fail_exit_3(conn, monkeypatch):
-    from sm_scan.sources.base import SourceError
+    from paperpulse.sources.base import SourceError
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search",
+    monkeypatch.setattr("paperpulse.sources.europepmc.search",
                         lambda q, a, b, page_size=100: (_ for _ in ()).throw(SourceError("down")))
-    monkeypatch.setattr("sm_scan.sources.journals.scan_journals",
+    monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: (_ for _ in ()).throw(SourceError("down")))
-    monkeypatch.setattr("sm_scan.sources.biorxiv.scan",
+    monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
                         lambda a, b, g: (_ for _ in ()).throw(SourceError("down")))
     rc = engine.run_scan(conn=conn)
     assert rc == 3
@@ -176,7 +176,7 @@ def test_all_tracks_fail_exit_3(conn, monkeypatch):
 def test_run_ts_assigns_first_seen_for_midnight_spanning_run(conn, monkeypatch):
     """跨零点 run 的所有论文 first_seen 归入起始时刻(spec §5)。"""
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([_paper("10.7/a", "Midnight paper")]))
     engine.run_scan(conn=conn, run_ts="2026-11-05T23:58:00")
     fs = conn.execute("SELECT first_seen FROM papers WHERE id='10.7/a'").fetchone()[0]
@@ -185,7 +185,7 @@ def test_run_ts_assigns_first_seen_for_midnight_spanning_run(conn, monkeypatch):
 
 def test_one_group_failing_is_partial(conn, monkeypatch):
     """spec §13:单组失败 → partial(退出码 2),不得静默 ok。"""
-    from sm_scan.sources.base import SourceError as _SE
+    from paperpulse.sources.base import SourceError as _SE
 
     def _raising():
         def gen():
@@ -203,7 +203,7 @@ def test_one_group_failing_is_partial(conn, monkeypatch):
         item = queues.pop(0)
         return item if not isinstance(item, list) else iter(item)
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     rc = engine.run_scan(conn=conn)
     assert rc == 2
     run = conn.execute("SELECT status FROM runs ORDER BY id DESC").fetchone()
@@ -212,10 +212,10 @@ def test_one_group_failing_is_partial(conn, monkeypatch):
 
 def test_lock_released_after_scan(conn, monkeypatch):
     """扫描结束必须释放防重入锁(GUI 长存进程不得长期持锁)。"""
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     engine.run_scan(conn=conn)
     assert not (config.data_dir() / "last_run.lock").exists()
@@ -226,7 +226,7 @@ def test_llm_flag_invokes_batch(conn, monkeypatch):
     store.save_setting(conn, "llm_base_url", "https://x/v4")
     store.save_setting(conn, "llm_model", "m")
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([_paper("10.9/a", "For digest")]))
     calls = []
 
@@ -234,7 +234,7 @@ def test_llm_flag_invokes_batch(conn, monkeypatch):
         calls.append(len(papers))
         return 0, 0
 
-    monkeypatch.setattr("sm_scan.llm.batch_digest", fake_batch)
+    monkeypatch.setattr("paperpulse.llm.batch_digest", fake_batch)
     rc = engine.run_scan(conn=conn, llm=True)
     assert rc == 0
     assert calls, "llm=True 必须触发 batch_digest"
@@ -246,7 +246,7 @@ def test_llm_flag_invokes_batch(conn, monkeypatch):
 
 def test_matched_groups_stored_as_ids(conn, monkeypatch):
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([_paper("10.8/i", "Hit")]))
     engine.run_scan(conn=conn)
     mg = json.loads(conn.execute(
@@ -281,7 +281,7 @@ def test_days_flag_expands_window(conn, monkeypatch):
         windows.append((d_from, d_to))
         return iter([])
 
-    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.europepmc.search", fake_search)
     engine.run_scan(conn=conn, days=40)
     assert windows
     span = (date.today() - windows[0][0]).days
@@ -291,7 +291,7 @@ def test_days_flag_expands_window(conn, monkeypatch):
 def test_llm_unconfigured_is_loud(conn, monkeypatch, capsys):
     """P2-4:--llm 未配置必须可见地报错,不静默(spec §13)。"""
     monkeypatch.setattr(
-        "sm_scan.sources.europepmc.search",
+        "paperpulse.sources.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     engine.run_scan(conn=conn, llm=True)
     out = capsys.readouterr().out

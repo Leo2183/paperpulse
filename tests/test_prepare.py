@@ -1,5 +1,5 @@
 """P1-1:落库前加工统一入口,三条路径(主题/订阅/回填)共用。"""
-from sm_scan import prepare
+from paperpulse import prepare
 
 
 def test_prepare_topic_paper():

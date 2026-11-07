@@ -1,4 +1,4 @@
-p = "sm_scan/gui/queries_view.py"
+p = "paperpulse/gui/queries_view.py"
 s = open(p, encoding="utf-8").read()
 NL = chr(10)
 bad1 = 'head = f"近 7 天命中,前 {len(payload)} 条:" if payload                     else "近 7 天命中 0 条(短语过窄或窗口无新文)。"'

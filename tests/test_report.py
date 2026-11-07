@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from sm_scan import report, store
+from paperpulse import report, store
 
 
 def _paper(pid, title, **kw):
@@ -46,7 +46,7 @@ def filled(conn):  # 来自 conftest
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()

@@ -1,4 +1,4 @@
-"""CLI 入口:python -m sm_scan scan|gui|report|task(spec §11)。"""
+"""CLI 入口:python -m paperpulse scan|gui|report|task(spec §11)。"""
 
 import argparse
 import logging
@@ -10,7 +10,7 @@ from .logsetup import setup_logging  # noqa: F401  (re-export)
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="sm-scan")
+    parser = argparse.ArgumentParser(prog="paperpulse")
     sub = parser.add_subparsers(dest="cmd")
 
     sc = sub.add_parser("scan", help="run all tracks")

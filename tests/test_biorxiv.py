@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from sm_scan import queries
-from sm_scan.sources import biorxiv
-from sm_scan.sources.base import SourceError
+from paperpulse import queries
+from paperpulse.sources import biorxiv
+from paperpulse.sources.base import SourceError
 
 FIX = Path(__file__).parent / "fixtures"
 GROUPS = queries.DEFAULT_GROUPS
@@ -60,7 +60,7 @@ def test_base_non_json_response_raises_source_error():
         def json(self):
             raise ValueError("not json")
 
-    from sm_scan.sources import base
+    from paperpulse.sources import base
 
     with pytest.raises(SourceError):
         base._raise_for_status(FakeResp())

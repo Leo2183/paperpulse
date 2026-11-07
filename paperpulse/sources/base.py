@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import requests
 
-UA = "sm-scan/0.1 (local research tool)"
+UA = "paperpulse/0.1 (local research tool)"
 TIMEOUT = 30
 RETRIES = 2
 MIN_INTERVAL = 1.0

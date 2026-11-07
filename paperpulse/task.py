@@ -2,7 +2,7 @@
 
 - 注册前自检 import(pythonw 无控制台,静默失败最难排查)
 - schtasks 一律 subprocess 列表形式、不经 shell(/TR 的 \" 是批处理语法)
-- sys.frozen 双形态:打包版注册 sm-scan.exe,开发态 pythonw -m sm_scan
+- sys.frozen 双形态:打包版注册 paperpulse.exe,开发态 pythonw -m paperpulse
 """
 
 import ctypes
@@ -17,7 +17,7 @@ from . import config
 
 log = logging.getLogger(__name__)
 
-TASK_NAME = "sm-scan-daily"
+TASK_NAME = "paperpulse-daily"
 LOCK_STALE_HOURS = 6
 
 
@@ -67,11 +67,11 @@ def release_lock() -> None:
 
 def _scan_command() -> str:
     if getattr(sys, "frozen", False):
-        # 双目录布局:GUI 在 dist/sm-scan-gui/,CLI 在 dist/sm-scan/
-        exe = Path(sys.executable).parent.parent / "sm-scan" / "sm-scan.exe"
+        # 双目录布局:GUI 在 dist/paperpulse-gui/,CLI 在 dist/paperpulse/
+        exe = Path(sys.executable).parent.parent / "paperpulse" / "paperpulse.exe"
         return f'"{exe}" scan'
     pythonw = Path(sys.executable).with_name("pythonw.exe")
-    return f'"{pythonw}" -m sm_scan scan'
+    return f'"{pythonw}" -m paperpulse scan'
 
 
 def _command_target(cmd: str) -> Path | None:
@@ -84,15 +84,15 @@ def _command_target(cmd: str) -> Path | None:
 
 
 def _selfcheck() -> tuple[bool, str]:
-    """开发态前置 pip install -e . 校验:import sm_scan 失败则拒绝注册。"""
+    """开发态前置 pip install -e . 校验:import paperpulse 失败则拒绝注册。"""
     if getattr(sys, "frozen", False):
         return True, ""
     python = sys.executable
     r = subprocess.run(
-        [python, "-c", "import sm_scan"], capture_output=True, text=True
+        [python, "-c", "import paperpulse"], capture_output=True, text=True
     )
     if r.returncode != 0:
-        return False, (r.stderr or "import sm_scan failed").strip()[:300]
+        return False, (r.stderr or "import paperpulse failed").strip()[:300]
     return True, ""
 
 
@@ -103,12 +103,10 @@ def register() -> tuple[bool, str]:
     tr = _scan_command()
     target = _command_target(tr)
     if target is not None and not target.exists():
-        return False, f"目标程序不存在:{target}(打包目录需包含 sm-scan/sm-scan.exe)"
+        return False, f"目标程序不存在:{target}(打包目录需包含 paperpulse/paperpulse.exe)"
     cmd = [
         "schtasks", "/Create", "/TN", TASK_NAME,
         "/TR", tr,
-        "schtasks", "/Create", "/TN", TASK_NAME,
-        "/TR", _scan_command(),
         "/SC", "DAILY", "/ST", "09:00", "/F",
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")

@@ -2,7 +2,7 @@
 
 import sys
 
-from sm_scan.__main__ import main
+from paperpulse.__main__ import main
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -17,7 +17,7 @@ NAV_LABELS = ["论文列表", "标记管理", "检索式配置", "扫描中心"]
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("sm-scan — 空间代谢组学论文扫描器")
+        self.setWindowTitle("paperpulse — 论文监控器")
         self.resize(1280, 800)
         self.conn = store.connect()
         store.init_db(self.conn)

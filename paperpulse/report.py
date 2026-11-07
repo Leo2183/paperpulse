@@ -81,7 +81,7 @@ def generate(conn, for_date: date) -> Path:
     total = len(day)
 
     lines = [
-        f"# sm-scan 日报 {for_date.isoformat()}",
+        f"# paperpulse 日报 {for_date.isoformat()}",
         f"新增 {total} 篇(Europe PMC {pmc_cnt} / 订阅 {sub_cnt} / bioRxiv {brx_cnt})"
         f" | 组1✓ 组2✓ 组3✓ | 订阅 {len(modes)} 刊",
         f"分档:核心(植物+成像){len(tiers['t1'])} | 方法学 {len(tiers['t2'])}"

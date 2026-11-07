@@ -1,5 +1,5 @@
 [project]
-name = "sm-scan"
+name = "paperpulse"
 version = "0.1.0"
 description = "Spatial metabolomics paper scanner: three-track daily scan + digest + GUI"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["sm_scan*"]
+include = ["paperpulse*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

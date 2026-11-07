@@ -1,14 +1,14 @@
 """PyInstaller 打包(spec §15):onedir,产 GUI 与 CLI 两个入口。
 
 用法:python build.py
-→  dist/sm-scan/sm-scan.exe(CLI,任务计划用)
-→  dist/sm-scan-gui/sm-scan-gui.exe(界面)
+→  dist/paperpulse/paperpulse.exe(CLI,任务计划用)
+→  dist/paperpulse-gui/paperpulse-gui.exe(界面)
 """
 
 import PyInstaller.__main__ as pymain
 
 CLI_ENTRY = "cli_entry.py"
-GUI_ENTRY = "sm_scan/gui_entry.py"
+GUI_ENTRY = "paperpulse/gui_entry.py"
 
 COMMON = [
     "--clean", "--noconfirm",
@@ -34,11 +34,11 @@ def build(cli_name: str, entry: str, *, extra: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     # CLI(任务计划用;无窗口依赖)
-    build("sm-scan", CLI_ENTRY, extra=[
+    build("paperpulse", CLI_ENTRY, extra=[
         "--console",
         "--exclude-module", "PySide6",
         "--exclude-module", "shiboken6",
     ])
     # GUI(带窗口)
-    build("sm-scan-gui", GUI_ENTRY, extra=["--windowed"])
-    print("done: dist/sm-scan/")
+    build("paperpulse-gui", GUI_ENTRY, extra=["--windowed"])
+    print("done: dist/paperpulse/")

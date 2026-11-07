@@ -3,13 +3,13 @@ from datetime import date
 
 import pytest
 
-from sm_scan import store
-from sm_scan.sources import journals
+from paperpulse import store
+from paperpulse.sources import journals
 
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
-    from sm_scan import config
+    from paperpulse import config
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()
@@ -18,7 +18,7 @@ def conn(tmp_path, monkeypatch):
 
 
 def _paper(pid, title, abstract="Abs.", **kw):
-    from sm_scan.store import Paper
+    from paperpulse.store import Paper
 
     base = dict(
         id=pid, doi=pid, pmcid=None, title=title, authors="A et al.",
@@ -58,10 +58,10 @@ def test_broad_filter_without_abstract_title_only():
 
 def test_route_prefers_europepmc_falls_back(conn, monkeypatch):
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([_paper("10.9/x", "X")]))
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     jid = conn.execute(
@@ -76,10 +76,10 @@ def test_route_prefers_europepmc_falls_back(conn, monkeypatch):
 
 def test_route_double_zero_not_cached(conn, monkeypatch):
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([]))
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     jid = 1
@@ -92,10 +92,10 @@ def test_route_double_zero_not_cached(conn, monkeypatch):
 
 def test_seeds_thirty_two_journals_and_modes(conn, monkeypatch):
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([]))
     list(journals.scan_journals(conn, (date(2026, 11, 4), TODAY), TODAY))
     n = conn.execute("SELECT COUNT(*) FROM journal_subscriptions").fetchone()[0]
@@ -117,10 +117,10 @@ def test_full_journal_safety_valve_only_on_daily_window(conn, monkeypatch):
     papers += [_paper(f"10.9/x{i}", f"Unrelated ion topic {i}") for i in range(5)]
 
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter(papers))
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([]))
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     jid = conn.execute(
@@ -132,7 +132,7 @@ def test_full_journal_safety_valve_only_on_daily_window(conn, monkeypatch):
 
     # 窗口 90 天(回填):同样 35 条不降级、全收
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter(papers))
     out2 = list(journals.scan_journals(
         conn, (date(2026, 8, 8), TODAY), TODAY))
@@ -148,9 +148,9 @@ def test_backfill_journal_uses_90_days(conn, monkeypatch):
         windows.append((a, b))
         return iter([])
 
-    monkeypatch.setattr("sm_scan.sources.journals.europepmc.search", fake_search)
+    monkeypatch.setattr("paperpulse.sources.journals.europepmc.search", fake_search)
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([]))
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     journals.backfill_journal(conn, 1, today=TODAY)
@@ -166,9 +166,9 @@ def test_probe_passes_mailto_to_crossref(conn, monkeypatch):
         return iter([_paper("10.9/m", "M")])
 
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
-    monkeypatch.setattr("sm_scan.sources.journals.crossref.fetch_journal", fake_fetch)
+    monkeypatch.setattr("paperpulse.sources.journals.crossref.fetch_journal", fake_fetch)
     store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
     jid = conn.execute(
         "SELECT id FROM journal_subscriptions WHERE name LIKE 'International Journal of Mass%'").fetchone()[0]
@@ -218,7 +218,7 @@ def test_preset_journals_loading(tmp_path, monkeypatch):
 
 
 def test_subscription_export_import_roundtrip(conn, monkeypatch):
-    from sm_scan.sources import journals as j
+    from paperpulse.sources import journals as j
 
     monkeypatch.setattr(j.europepmc, "search",
                         lambda q, a, b, page_size=100: iter([]))
@@ -246,7 +246,7 @@ def test_safety_valve_daily_rate_not_window_sum(conn, monkeypatch):
 
     def run(window):
         monkeypatch.setattr(
-            "sm_scan.sources.journals.europepmc.search",
+            "paperpulse.sources.journals.europepmc.search",
             lambda q, a, b, page_size=100: iter(papers))
         out = list(journals.scan_journals(conn, window, TODAY))
         return [j.get("_demoted") for _, j in out if j["id"] == jid]

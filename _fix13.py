@@ -1,7 +1,7 @@
 import re
 
 # ---- P2-10: tags 词边界(单词类 \b,多词短语子串)
-p = "sm_scan/tags.py"
+p = "paperpulse/tags.py"
 s = open(p, encoding="utf-8").read()
 old = '''def _hit(text: str, phrases: list[str]) -> bool:
     t = text.lower()
@@ -24,7 +24,7 @@ open(p, "w", encoding="utf-8").write(s)
 print("tags ok")
 
 # ---- P2-1: 安全阀日均口径
-p = "sm_scan/sources/journals.py"
+p = "paperpulse/sources/journals.py"
 s = open(p, encoding="utf-8").read()
 old = '''    daily = (window[1] - window[0]).days <= DAILY_WINDOW_DAYS
     demoted = False
@@ -44,7 +44,7 @@ open(p, "w", encoding="utf-8").write(s)
 print("valve ok")
 
 # ---- P2-2: engine 收集 demoted → per_source;日报读 run 显示
-p = "sm_scan/engine.py"
+p = "paperpulse/engine.py"
 s = open(p, encoding="utf-8").read()
 old = '''        try:
             for p, jrow in journals.scan_journals(
@@ -77,7 +77,7 @@ open(p, "w", encoding="utf-8").write(s)
 print("engine demoted ok")
 
 # ---- P2-4: --llm 未配置可见报错
-p = "sm_scan/engine.py"
+p = "paperpulse/engine.py"
 s = open(p, encoding="utf-8").read()
 old = '''    if not (settings.get("llm_base_url") and settings.get("llm_model")):
         log.warning("--llm set but LLM not configured (base_url/model); digest skipped")
@@ -93,7 +93,7 @@ open(p, "w", encoding="utf-8").write(s)
 print("llm loud ok")
 
 # ---- P3-4: crossref indexed_date = created
-p = "sm_scan/sources/crossref.py"
+p = "paperpulse/sources/crossref.py"
 s = open(p, encoding="utf-8").read()
 old = '''    p = store.Paper(
         id=engine.paper_key(doi, title),
@@ -120,7 +120,7 @@ open(p, "w", encoding="utf-8").write(s)
 print("crossref ok")
 
 # ---- P2-2: 日报读当日 run 的 demoted 注记
-p = "sm_scan/report.py"
+p = "paperpulse/report.py"
 s = open(p, encoding="utf-8").read()
 old = '''    lines.append("---")
     lines.append(f"## 待精读({len(todos)},累积状态,与前文分档有重叠)")'''

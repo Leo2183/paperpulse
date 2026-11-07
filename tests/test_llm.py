@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from sm_scan import llm
+from paperpulse import llm
 
 
 def test_normalize_base_url_both_forms():
@@ -102,7 +102,7 @@ def test_batch_digest_skips_cached_and_continues_on_error(conn, monkeypatch):
 
 
 def _upsert(conn, p):
-    from sm_scan import store
+    from paperpulse import store
 
     store.upsert_paper(conn, store.Paper(
         id=p["id"], doi=p["id"], pmcid=None, title=p["title"],
@@ -115,7 +115,7 @@ def _upsert(conn, p):
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
-    from sm_scan import config, store
+    from paperpulse import config, store
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()

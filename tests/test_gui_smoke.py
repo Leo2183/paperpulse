@@ -17,10 +17,10 @@ def qapp():
 
 @pytest.fixture
 def win(qapp, tmp_path, monkeypatch):
-    from sm_scan import config, store
+    from paperpulse import config, store
 
     monkeypatch.setattr(config, "ROOT", tmp_path)
-    from sm_scan.gui.app import MainWindow
+    from paperpulse.gui.app import MainWindow
 
     w = MainWindow()
     seed(w.conn, store)
@@ -75,7 +75,7 @@ def test_mark_starred_updates_db_and_view(win):
 def test_mark_view_exports_todo(win, tmp_path):
     from datetime import date
 
-    from sm_scan import report
+    from paperpulse import report
 
     win.conn.execute("UPDATE papers SET to_read=1 WHERE id='10.1/a'")
     win.conn.commit()
@@ -86,8 +86,8 @@ def test_mark_view_exports_todo(win, tmp_path):
 
 
 def test_queries_view_group3_refine_guard(win):
-    from sm_scan import queries as queries_mod
-    from sm_scan import store as store_mod
+    from paperpulse import queries as queries_mod
+    from paperpulse import store as store_mod
 
     store_mod.seed_groups(win.conn, [
         dict(name=g.name, enabled=1,
@@ -120,7 +120,7 @@ def test_scan_view_builds_with_defaults(win):
 
 
 def test_batch_digest_progress_callback(win, monkeypatch):
-    from sm_scan import llm as llm_mod
+    from paperpulse import llm as llm_mod
 
     class Resp:
         status_code = 200
@@ -145,18 +145,18 @@ def test_workers_use_own_connection(win, monkeypatch):
     """QThread worker 不得使用主线程 conn(首次写库即 ProgrammingError,C2)。"""
     import threading
 
-    from sm_scan import store as store_mod
-    from sm_scan.gui.queries_view import BackfillWorker
-    from sm_scan.gui.scan_view import DigestWorker
-    from sm_scan.sources import journals as jmod
+    from paperpulse import store as store_mod
+    from paperpulse.gui.queries_view import BackfillWorker
+    from paperpulse.gui.scan_view import DigestWorker
+    from paperpulse.sources import journals as jmod
 
     store_mod.seed_journals(win.conn, jmod.DEFAULT_JOURNAL_ROWS)
     jid = 1
     monkeypatch.setattr(
-        "sm_scan.sources.journals.europepmc.search",
+        "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(
-        "sm_scan.sources.journals.crossref.fetch_journal",
+        "paperpulse.sources.journals.crossref.fetch_journal",
         lambda issn, a, b, mailto=None, today=None: iter([]))
 
     errors = []
@@ -185,7 +185,7 @@ def test_workers_use_own_connection(win, monkeypatch):
         def json(self):
             return {"choices": [{"message": {"content": "d"}}]}
 
-    from sm_scan import llm as llm_mod
+    from paperpulse import llm as llm_mod
 
     monkeypatch.setattr(llm_mod.requests, "post", lambda *a, **kw: Resp())
 
@@ -207,8 +207,8 @@ def test_workers_use_own_connection(win, monkeypatch):
 
 def test_digest_button_to_worker_seam(win, monkeypatch):
     """P0-2 接缝:批量导读按钮 → DigestWorker 构造参数必须匹配签名。"""
-    from sm_scan import store as st_mod
-    from sm_scan.gui import scan_view as sv_mod
+    from paperpulse import store as st_mod
+    from paperpulse.gui import scan_view as sv_mod
 
     st_mod.upsert_paper(win.conn, st_mod.Paper(
         id="10.5/z", doi="10.5/z", pmcid=None, title="For seam", authors=None,
