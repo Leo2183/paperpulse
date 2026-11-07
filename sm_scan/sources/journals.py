@@ -169,11 +169,13 @@ def _scan_one(
         return
     _cache_route(conn, row["id"], kind)
 
-    daily = (window[1] - window[0]).days <= DAILY_WINDOW_DAYS
+    window_days = max((window[1] - window[0]).days, 1)
+    daily = window_days <= DAILY_WINDOW_DAYS
     demoted = False
     if row["mode"] == "full":
         batch = list(papers)
-        if daily and len(batch) > SAFETY_VALVE:
+        # 阈值按日均(P2-1):多天窗口合计大不触发,单日暴涨才触发
+        if daily and len(batch) / window_days > SAFETY_VALVE:
             log.warning(
                 "journal %s: %d new items (> %d) on a daily window -- "
                 "demoted to filter for this run", row["name"], len(batch),

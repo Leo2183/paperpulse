@@ -74,7 +74,7 @@ def _to_paper(item: dict, today: date) -> store.Paper:
         authors=_authors_display(item),
         journal=(item.get("container-title") or [None])[0],
         pub_date=pub,
-        indexed_date=None,
+        indexed_date=((item.get("created") or {}).get("date-time") or "")[:10] or None,
         source="crossref",
         sources=["crossref"],
         subscription=None,

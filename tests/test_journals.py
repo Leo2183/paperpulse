@@ -235,3 +235,23 @@ def test_subscription_export_import_roundtrip(conn, monkeypatch):
     assert added2 == 1
     n = conn.execute("SELECT COUNT(*) FROM journal_subscriptions").fetchone()[0]
     assert n == 33
+
+
+def test_safety_valve_daily_rate_not_window_sum(conn, monkeypatch):
+    """P2-1:阈值按日均(>30/天),不是窗口合计。"""
+    papers = [_paper(f"10.9/d{i}", f"MALDI study {i}") for i in range(35)]
+    store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
+    jid = conn.execute(
+        "SELECT id FROM journal_subscriptions WHERE name LIKE 'Journal of the American%'").fetchone()[0]
+
+    def run(window):
+        monkeypatch.setattr(
+            "sm_scan.sources.journals.europepmc.search",
+            lambda q, a, b, page_size=100: iter(papers))
+        out = list(journals.scan_journals(conn, window, TODAY))
+        return [j.get("_demoted") for _, j in out if j["id"] == jid]
+
+    # 3 天窗口 35 条 ≈ 11.7/天 → 不降级
+    assert not any(run((date(2026, 11, 4), TODAY)))
+    # 1 天窗口 35 条 → 降级
+    assert any(run((TODAY, TODAY)))

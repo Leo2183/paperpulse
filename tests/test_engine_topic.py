@@ -286,3 +286,13 @@ def test_days_flag_expands_window(conn, monkeypatch):
     assert windows
     span = (date.today() - windows[0][0]).days
     assert span >= 40
+
+
+def test_llm_unconfigured_is_loud(conn, monkeypatch, capsys):
+    """P2-4:--llm 未配置必须可见地报错,不静默(spec §13)。"""
+    monkeypatch.setattr(
+        "sm_scan.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    engine.run_scan(conn=conn, llm=True)
+    out = capsys.readouterr().out
+    assert "llm" in out.lower() and ("未配置" in out or "not configured" in out.lower())

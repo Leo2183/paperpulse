@@ -40,3 +40,15 @@ def test_empty_abstract_title_only():
     out = tags.assign(
         "MALDI imaging of Paeonia root", None, G3_PHRASES)
     assert "成像/空间" in out and "植物" in out
+
+
+def test_word_boundary_no_substring_false_positive():
+    """P2-10:rice 不得命中 price,plant 不得命中 transplant/implant。"""
+    out = tags.assign("The price of sequencing falls", "cost analysis", [])
+    assert "植物" not in out
+    out2 = tags.assign("Implant stability after transplantation",
+                       "dental implant study", [])
+    assert "植物" not in out2
+    # 真命中仍工作
+    out3 = tags.assign("Rice husk metabolomics", None, [])
+    assert "植物" in out3

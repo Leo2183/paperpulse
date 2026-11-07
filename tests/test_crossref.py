@@ -96,3 +96,16 @@ def test_blacklist_exact_not_substring(monkeypatch):
     ids = {p["id"] for p in out}
     assert {"10.1/keep1", "10.1/keep2", "10.1/keep3"} <= ids
     assert "10.1/drop1" not in ids and "10.1/drop2" not in ids
+
+
+def test_indexed_date_from_created(monkeypatch):
+    """P3-4:Crossref 路由 indexed_date 取 created(DOI 注册日)。"""
+    body = {"message": {"total-results": 1, "items": [{
+        "DOI": "10.1/created", "title": ["Some article"],
+        "container-title": ["J"], "issued": {"date-parts": [[2026, 11, 2]]},
+        "created": {"date-time": "2026-11-04T01:02:03Z"},
+        "type": "journal-article"}]}}
+    monkeypatch.setattr(crossref, "http_get",
+                        lambda u, params=None, mailto=None: body)
+    out = list(crossref.fetch_journal("1387-3806", date(2026, 11, 1), date(2026, 11, 6)))
+    assert out[0]["indexed_date"] == "2026-11-04"

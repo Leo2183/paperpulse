@@ -144,3 +144,17 @@ def test_report_journal_counts_and_backfill_note(conn):
     text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
     assert "Nature × 3" in text
     assert "首跑回填" in text
+
+
+def test_report_notes_demoted_journals(conn):
+    """P2-2:安全阀降级的刊在日报可见。"""
+    store.upsert_paper(conn, _paper("10.10/a", "Flood paper"))
+    import json as _json
+
+    conn.execute(
+        "INSERT INTO runs (started_at, finished_at, status, new_count, per_source)"
+        " VALUES ('2026-11-06T09:00:00','2026-11-06T09:05:00','ok',1,?)",
+        (_json.dumps({"journals": {"demoted": ["Some Journal"]}}),))
+    conn.commit()
+    text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
+    assert "Some Journal" in text and "降级" in text

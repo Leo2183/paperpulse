@@ -194,15 +194,20 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         if settings.get("src_journals_enabled", "1") == "1":
             t = _track("journals")
             try:
+                demoted: set[str] = set()
                 for p, jrow in journals.scan_journals(
                     conn, window, date.today(),
                     mailto=settings.get("crossref_mailto") or None,
                 ):
                     t["fetched"] += 1
                     stale = p.get("_stale", False)  # 注册日保护:只入库不计新增
+                    if jrow.get("_demoted"):
+                        demoted.add(jrow["name"])  # P2-2:日报可见
                     if _upsert(p, subscription=jrow["name"]) and not stale:
                         new_count += 1
                         t["new"] += 1
+                if demoted:
+                    t["demoted"] = sorted(demoted)
             except SourceError as e:
                 log.error("journal track failed: %s", e)
                 errors.append(f"journals: {e}")
@@ -265,6 +270,8 @@ def _run_llm_digest(conn, settings: dict, started: str) -> None:
 
     if not (settings.get("llm_base_url") and settings.get("llm_model")):
         log.warning("--llm set but LLM not configured (base_url/model); digest skipped")
+        print("[llm] 未配置:请在 GUI「检索式配置 → 源与 LLM」填写 base_url 与 model;"
+              "本次跳过导读(spec §13 明确报错,不静默)")
         return
     key = ""
     if settings.get("llm_api_key"):

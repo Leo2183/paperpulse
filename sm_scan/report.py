@@ -127,6 +127,16 @@ def generate(conn, for_date: date) -> Path:
     todos = [dict(r) for r in conn.execute(
         "SELECT title, url, llm_digest FROM papers WHERE to_read=1"
     ).fetchall()]
+    run = conn.execute(
+        "SELECT per_source FROM runs WHERE finished_at IS NOT NULL"
+        " ORDER BY id DESC LIMIT 1").fetchone()
+    if run and run["per_source"]:
+        try:
+            dem = json.loads(run["per_source"]).get("journals", {}).get("demoted")
+        except ValueError:
+            dem = None
+        if dem:
+            lines.append(f"> 注:安全阀降级 filter(单日发文量暴涨):{', '.join(dem)}")
     lines.append("---")
     lines.append(f"## 待精读({len(todos)},累积状态,与前文分档有重叠)")
     for t in todos:

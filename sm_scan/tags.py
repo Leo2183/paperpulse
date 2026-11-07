@@ -3,6 +3,8 @@
 宁可漏标,不可错标:词表只用无判别力误报排除后的复合词/专名。
 """
 
+import re
+
 IMAGING_TERMS = [
     "mass spectrometry imaging", "MALDI-MSI", "MALDI imaging",
     "MALDI mass spectrometry imaging", "imaging mass spectrometry",
@@ -19,8 +21,18 @@ from .queries import PLANT_TERMS  # noqa: E402
 
 
 def _hit(text: str, phrases: list[str]) -> bool:
+    """单词短语按词边界匹配防子串误报;多词短语仍子串(P2-10)。"""
+    import re
     t = text.lower()
-    return any(p.lower() in t for p in phrases)
+    edge = chr(92) + "b"
+    for ph in phrases:
+        q = ph.lower()
+        if " " in q or "-" in q:
+            if q in t:
+                return True
+        elif re.search(edge + re.escape(q) + edge, t):
+            return True
+    return False
 
 
 def assign(
