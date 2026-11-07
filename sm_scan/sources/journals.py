@@ -2,7 +2,9 @@
 
 import logging
 from collections.abc import Iterator
+import json
 from datetime import date, timedelta
+from pathlib import Path
 from itertools import islice
 
 from .. import queries, store
@@ -26,8 +28,8 @@ SAFETY_VALVE = 30  # 单刊单日 >30 → 降级 filter;仅日常窗口(≤7 天
 DAILY_WINDOW_DAYS = 7
 BACKFILL_DAYS = 90
 
-# 32 本默认清单(v5 分档:filter 19 / full 13;IJMS 降 filter 保留)
-DEFAULT_JOURNAL_ROWS = [
+# 32 本内置清单(v5 分档;运行时优先从 presets/ 主题包加载)
+_BUILTIN_JOURNAL_ROWS = [
     # filter(高发文量)
     dict(name="International Journal of Molecular Sciences", issn="1422-0067", mode="filter"),
     dict(name="Analytical Chemistry", issn="0003-2700", mode="filter"),
@@ -64,6 +66,29 @@ DEFAULT_JOURNAL_ROWS = [
     dict(name="Horticulture Research", issn="2052-7276", mode="full"),
     dict(name="Food Chemistry: X", issn="2590-1575", mode="filter"),  # 90d≈720>300(P1-7)
 ]
+
+
+PRESETS_DIR = Path(__file__).resolve().parent.parent.parent / "presets"
+
+
+def _load_preset_journals() -> list[dict] | None:
+    if not PRESETS_DIR.is_dir():
+        return None
+    files = sorted(PRESETS_DIR.glob("*.json"))
+    if not files:
+        return None
+    try:
+        data = json.loads(files[0].read_text(encoding="utf-8"))
+        rows = data.get("journals", [])
+        return [dict(name=r["name"], issn=r["issn"], mode=r["mode"])
+                for r in rows if r.get("name") and r.get("issn")]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def get_default_journals() -> list[dict]:
+    loaded = _load_preset_journals()
+    return loaded if loaded else _BUILTIN_JOURNAL_ROWS
 
 
 def suggest_mode(count_90d: int) -> str:
@@ -232,3 +257,6 @@ def audit_modes(conn, mailto: str | None = None) -> list[dict]:
             mismatch=(suggested is not None and suggested != r["mode"]),
         ))
     return out
+
+
+DEFAULT_JOURNAL_ROWS = get_default_journals()

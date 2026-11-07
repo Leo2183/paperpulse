@@ -4,6 +4,7 @@
 """
 
 import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -63,11 +64,36 @@ class TermGroup:
     id: int | None = None
 
 
+PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
+
+
+def _load_preset_groups() -> list[TermGroup] | None:
+    """从 presets/<topic>.json 加载检索组;无主题包或损坏时返回 None(回落内置)。"""
+    if not PRESETS_DIR.is_dir():
+        return None
+    files = sorted(PRESETS_DIR.glob("*.json"))
+    if not files:
+        return None
+    try:
+        data = json.loads(files[0].read_text(encoding="utf-8"))
+        return [
+            TermGroup(
+                id=g.get("id"), name=g["name"],
+                enabled=bool(g.get("enabled", 1)),
+                terms=[Term(**t) for t in g.get("terms", [])],
+                refine=[Term(**t) for t in g.get("refine", [])],
+            )
+            for g in data.get("groups", [])
+        ]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
 def _terms(phrases: list[str]) -> list[Term]:
     return [Term(p) for p in phrases]
 
 
-DEFAULT_GROUPS: list[TermGroup] = [
+_BUILTIN_GROUPS: list[TermGroup] = [
     TermGroup(
         id=1, name="植物+空间成像",
         terms=_terms(_GROUP1_TERMS),
@@ -108,3 +134,24 @@ def to_europepmc_query(g: TermGroup, d_from: date, d_to: date) -> str:
         q += " AND (" + " OR ".join(_clause(t) for t in g.refine) + ")"
     q += f" AND FIRST_IDATE:[{d_from.isoformat()} TO {d_to.isoformat()}]"
     return q
+
+
+def get_default_groups() -> list[TermGroup]:
+    """默认检索组:presets 优先,内置兜底(离线/无主题包)。"""
+    loaded = _load_preset_groups()
+    return loaded if loaded else _BUILTIN_GROUPS
+
+
+# 兼容旧引用(测试/回填等):延迟求值代理
+class _GroupsProxy:
+    def __iter__(self):
+        return iter(get_default_groups())
+
+    def __len__(self):
+        return len(get_default_groups())
+
+    def __getitem__(self, i):
+        return get_default_groups()[i]
+
+
+DEFAULT_GROUPS = _GroupsProxy()

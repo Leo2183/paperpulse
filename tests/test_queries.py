@@ -73,3 +73,20 @@ def test_from_row_roundtrip():
     assert g.terms[1].scope == "title_abs"  # 默认
     assert [t.phrase for t in g.refine] == ["plant"]
     assert g.refine[0].scope == "title_abs"
+
+
+def test_preset_loading_and_fallback(tmp_path, monkeypatch):
+    """主题包优先,内置兜底(通用性:换主题=换 JSON)。"""
+    import json
+
+    (tmp_path / "mytopic.json").write_text(json.dumps({
+        "groups": [{"id": 9, "name": "自定义组", "enabled": 1,
+                    "terms": [{"phrase": "cryo-EM", "scope": "title_abs"}],
+                    "refine": []}]
+    }), encoding="utf-8")
+    monkeypatch.setattr(queries, "PRESETS_DIR", tmp_path)
+    groups = queries.get_default_groups()
+    assert len(groups) == 1 and groups[0].name == "自定义组"
+
+    monkeypatch.setattr(queries, "PRESETS_DIR", tmp_path / "empty")
+    assert len(queries.get_default_groups()) == 3  # 内置兜底
