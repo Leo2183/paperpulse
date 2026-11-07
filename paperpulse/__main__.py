@@ -1,9 +1,7 @@
 """CLI 入口:python -m paperpulse scan|gui|report|task(spec §11)。"""
 
 import argparse
-import logging
 import sys
-from logging.handlers import RotatingFileHandler
 
 
 from .logsetup import setup_logging  # noqa: F401  (re-export)

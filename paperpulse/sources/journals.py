@@ -5,7 +5,6 @@ from collections.abc import Iterator
 import json
 from datetime import date, timedelta
 from pathlib import Path
-from itertools import islice
 
 from .. import prepare, queries, store
 from . import crossref, europepmc
@@ -72,23 +71,25 @@ PRESETS_DIR = Path(__file__).resolve().parent.parent.parent / "presets"
 
 
 def _load_preset_journals() -> list[dict] | None:
-    if not PRESETS_DIR.is_dir():
-        return None
-    files = sorted(PRESETS_DIR.glob("*.json"))
-    if not files:
+    """空订阅清单是合法配置(有意不订阅),不回退(P2-2);损坏响亮回退。"""
+    from ..queries import _preset_files, _loud_preset_error
+
+    files = _preset_files(PRESETS_DIR)
+    if files is None:
         return None
     try:
         data = json.loads(files[0].read_text(encoding="utf-8"))
         rows = data.get("journals", [])
         return [dict(name=r["name"], issn=r["issn"], mode=r["mode"])
                 for r in rows if r.get("name") and r.get("issn")]
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError) as e:
+        _loud_preset_error(files[0], e)
         return None
 
 
 def get_default_journals() -> list[dict]:
     loaded = _load_preset_journals()
-    return loaded if loaded else _BUILTIN_JOURNAL_ROWS
+    return loaded if loaded is not None else _BUILTIN_JOURNAL_ROWS
 
 
 def suggest_mode(count_90d: int) -> str:

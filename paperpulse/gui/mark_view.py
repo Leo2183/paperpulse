@@ -36,7 +36,10 @@ class MarkView(PaperListView):
         lines = [f"# 当前筛选结果 {date.today().isoformat()}({len(self._rows)} 篇)", ""]
         for r in self._rows:
             digest = f" — {r['llm_digest']}" if r["llm_digest"] else ""
-            lines.append(f"- [{r['title']}]({r['url'] or r['doi'] or ''}){digest}")
+            link = r["url"] or (
+                f"https://doi.org/{r['doi']}" if r["doi"] else "")
+            item = f"- [{r['title']}]({link})" if link else f"- {r['title']}"
+            lines.append(item + digest)
         lines.append("")
         path = config.reports_dir() / (
             f"filtered-{date.today().isoformat()}.md")

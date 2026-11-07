@@ -34,8 +34,6 @@ class PaperListView(QWidget):
         self.f_to = QDateEdit()
         self.f_to.setCalendarPopup(True)
         self.f_to.setDate(self.f_to.date().currentDate())
-        from datetime import date, timedelta
-
         self.f_from.setDate(self.f_from.date().currentDate().addDays(-30))
 
         self.f_source = QComboBox()
@@ -207,7 +205,7 @@ class PaperListView(QWidget):
             "",
             r["llm_digest"]
             and f"【导读】{r['llm_digest']}"
-            or (r["abstract"] or "摘要未提供(Crossref)"),
+            or (r["abstract"] or "摘要未提供"),
         ]
         self.detail.setPlainText("\n".join(str(x) for x in lines))
 

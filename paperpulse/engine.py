@@ -1,9 +1,7 @@
 """扫描引擎(spec §5):纯函数 + 三轨编排 run_scan。"""
 
-import hashlib
 import json
 import logging
-import re
 import time
 from datetime import date, timedelta
 

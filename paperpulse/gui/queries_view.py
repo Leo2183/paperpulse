@@ -209,6 +209,8 @@ class QueriesView(QWidget):
         form.addRow("refine", self.g_refine)
         form.addRow("", save)
         form.addRow("", test_g)
+        self.g_status = QLabel("")
+        form.addRow("", self.g_status)
         page = QWidget()
         h = QHBoxLayout(page)
         h.addWidget(self.group_list)
@@ -305,6 +307,9 @@ class QueriesView(QWidget):
     def _reload_journals(self) -> None:
         rows = [dict(r) for r in self.conn.execute(
             "SELECT * FROM journal_subscriptions ORDER BY id")]
+        self.j_table.setColumnCount(5)  # 重置审计临时列(P2-6)
+        self.j_table.setHorizontalHeaderLabels(
+            ["刊名", "ISSN", "模式", "路由", "启用"])
         self.j_table.setRowCount(len(rows))
         for i, r in enumerate(rows):
             for col, text in enumerate([
@@ -414,7 +419,7 @@ class QueriesView(QWidget):
         to = date.today()
         fr = to - timedelta(days=7)
         query = q_mod.to_europepmc_query(g, fr, to)
-        self.j_status.setText("测试请求中…")
+        self.g_status.setText("测试请求中…")
         self._tg_worker = TestGroupWorker(query)
 
         def _show(ok, payload):
@@ -426,7 +431,7 @@ class QueriesView(QWidget):
                     self, "测试该组", head + chr(10) + body)
             else:
                 QMessageBox.warning(self, "测试该组", f"请求失败:{payload}")
-            self.j_status.setText("")
+            self.g_status.setText("")
 
         self._tg_worker.done.connect(_show)
         self._tg_worker.start()

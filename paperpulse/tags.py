@@ -22,7 +22,6 @@ from .queries import PLANT_TERMS  # noqa: E402
 
 def _hit(text: str, phrases: list[str]) -> bool:
     """单词短语按词边界匹配防子串误报;多词短语仍子串(P2-10)。"""
-    import re
     t = text.lower()
     edge = chr(92) + "b"
     for ph in phrases:

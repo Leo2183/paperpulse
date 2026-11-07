@@ -5,6 +5,8 @@
 →  dist/paperpulse-gui/paperpulse-gui.exe(界面)
 """
 
+import os
+
 import PyInstaller.__main__ as pymain
 
 CLI_ENTRY = "cli_entry.py"
@@ -19,6 +21,7 @@ COMMON = [
     "--exclude-module", "PySide6.QtPdf",
     "--exclude-module", "PySide6.QtQuick",
     "--exclude-module", "PySide6.QtMultimedia",
+    "--add-data", "presets" + os.pathsep + "presets",
 ]
 
 

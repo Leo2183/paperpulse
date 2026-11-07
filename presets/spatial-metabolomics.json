@@ -90,11 +90,7 @@
      "scope": "title_abs"
     },
     {
-     "phrase": "plant tissue",
-     "scope": "title_abs"
-    },
-    {
-     "phrase": "leaf tissue",
+     "phrase": "phytochemistry",
      "scope": "title_abs"
     },
     {
@@ -102,15 +98,19 @@
      "scope": "title_abs"
     },
     {
-     "phrase": "phytochemistry",
+     "phrase": "leaf tissue",
      "scope": "title_abs"
     },
     {
-     "phrase": "natural product",
+     "phrase": "plant tissue",
      "scope": "title_abs"
     },
     {
      "phrase": "secondary metabolite",
+     "scope": "title_abs"
+    },
+    {
+     "phrase": "natural product",
      "scope": "title_abs"
     }
    ]

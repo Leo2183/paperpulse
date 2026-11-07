@@ -2,7 +2,6 @@
 
 import sys
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QStackedWidget, QWidget,
@@ -63,13 +62,6 @@ class MainWindow(QMainWindow):
         if hasattr(view, "reload"):
             view.reload()
 
-    def set_view(self, index: int, widget: QWidget) -> None:
-        """Task 15-17 用真实视图替换占位。"""
-        old = self.stack.widget(index)
-        self.stack.removeWidget(old)
-        old.deleteLater()
-        self.stack.insertWidget(index, widget)
-        self.views[index] = widget
 
 
 def main() -> int:

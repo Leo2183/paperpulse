@@ -19,7 +19,7 @@
 ```bat
 git clone https://github.com/Leo2183/paperpulse.git && cd paperpulse
 pip install -e .[dev]
-pytest                       # 129 用例,离线
+pytest                       # 140 用例,离线
 ```
 
 > 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import paperpulse` 静默失败(pythonw 无控制台)。

@@ -16,12 +16,9 @@ PLANT_TERMS = [
     "secondary metabolite", "natural product",
 ]
 
-_GROUP1_REFINE = [
-    "plant", "plants", "Arabidopsis", "Oryza", "rice", "maize", "wheat",
-    "soybean", "medicinal plant", "plant tissue", "leaf tissue",
-    "root exudate", "phytochemistry", "natural product",
-    "secondary metabolite",
-]
+# 组1 refine 从 PLANT_TERMS 派生(去掉仅标签用的物种专名),两表不再各自维护
+_GROUP1_REFINE = [t for t in PLANT_TERMS
+                  if t not in ("Medicago", "Nicotiana", "Paeonia")]
 
 _GROUP1_TERMS = [
     "mass spectrometry imaging", "MALDI imaging", "MALDI-MSI",
@@ -64,15 +61,13 @@ class TermGroup:
     id: int | None = None
 
 
-PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
-
-
 def _load_preset_groups() -> list[TermGroup] | None:
-    """从 presets/<topic>.json 加载检索组;无主题包或损坏时返回 None(回落内置)。"""
-    if not PRESETS_DIR.is_dir():
-        return None
-    files = sorted(PRESETS_DIR.glob("*.json"))
-    if not files:
+    """加载检索组:无主题包 → None(回落内置);损坏 → 响亮报错后回落内置。
+
+    空组列表是合法配置(有意不建组),不回退(P2-2)。
+    """
+    files = _preset_files()
+    if files is None:
         return None
     try:
         data = json.loads(files[0].read_text(encoding="utf-8"))
@@ -85,8 +80,30 @@ def _load_preset_groups() -> list[TermGroup] | None:
             )
             for g in data.get("groups", [])
         ]
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError) as e:
+        _loud_preset_error(files[0], e)
         return None
+
+
+def _preset_files(d=None):
+    from . import config as _config
+
+    d = d if (d is not None and d.is_dir()) else (
+        PRESETS_DIR if PRESETS_DIR.is_dir() else _config.presets_dir())
+    if not d.is_dir():
+        return None
+    files = sorted(d.glob("*.json"))
+    return files or None
+
+
+def _loud_preset_error(path, err) -> None:
+    import sys as _sys
+
+    msg = f"[presets] {path.name} 解析失败({err}),回退内置默认"
+    print(msg, file=_sys.stderr)
+
+
+PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 
 def _terms(phrases: list[str]) -> list[Term]:
@@ -137,9 +154,9 @@ def to_europepmc_query(g: TermGroup, d_from: date, d_to: date) -> str:
 
 
 def get_default_groups() -> list[TermGroup]:
-    """默认检索组:presets 优先,内置兜底(离线/无主题包)。"""
+    """默认检索组:presets 优先(空列表=有意为空,不回退),内置兜底。"""
     loaded = _load_preset_groups()
-    return loaded if loaded else _BUILTIN_GROUPS
+    return loaded if loaded is not None else _BUILTIN_GROUPS
 
 
 # 兼容旧引用(测试/回填等):延迟求值代理
