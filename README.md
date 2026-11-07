@@ -60,3 +60,7 @@ python build.py
 - `reports/` — 日报、待精读清单
 
 均为本机文件,git 忽略。定时任务为"仅用户登录时运行":睡眠/关机跳过不补跑,数据不丢(下次扫描窗口自动覆盖空档)。
+
+## License
+
+MIT — see [LICENSE](LICENSE)
