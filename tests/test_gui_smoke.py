@@ -146,12 +146,11 @@ def test_workers_use_own_connection(win, monkeypatch):
     import threading
 
     from paperpulse import store as store_mod
-    from paperpulse.gui.queries_view import BackfillWorker
+    from paperpulse.gui.queries_view import NewJournalWorker
     from paperpulse.gui.scan_view import DigestWorker
     from paperpulse.sources import journals as jmod
 
     store_mod.seed_journals(win.conn, jmod.DEFAULT_JOURNAL_ROWS)
-    jid = 1
     monkeypatch.setattr(
         "paperpulse.sources.journals.europepmc.search",
         lambda q, a, b, page_size=100: iter([]))
@@ -163,7 +162,9 @@ def test_workers_use_own_connection(win, monkeypatch):
 
     def run_backfill():
         try:
-            BackfillWorker(jid).run()  # 目标签名:不接收主线程 conn
+            from paperpulse.sources import crossref as cf_mod
+            monkeypatch.setattr(cf_mod, "count_recent", lambda *a, **k: 1)
+            NewJournalWorker("T", "1234-5678").run()  # 线程内自建 conn
         except Exception as e:  # pragma: no cover
             errors.append(e)
 
@@ -466,3 +467,85 @@ def test_llm_provider_autofills_and_fetch_models(win, monkeypatch):
     combo = win.queries_view.llm_model
     texts = [combo.itemText(i) for i in range(combo.count())]
     assert "glm-4.7" in texts and "glm-4-flash" in texts
+
+
+def test_bg_buttons_reentry_safe(win):
+    """P1-1:请求未返回时连点不得覆盖运行中的 QThread(进程会直接退出)。"""
+    qv = win.queries_view
+    # _run_bg 存在且四个入口都走它
+    assert hasattr(qv, "_run_bg")
+    calls = []
+
+    class SlowWorker:
+        done = type("S", (), {"connect": staticmethod(lambda fn: None)})()
+
+        def __init__(self, fn):
+            calls.append("init")
+
+        def start(self):
+            pass
+
+        @staticmethod
+        def isRunning():
+            return True  # 模拟请求未返回
+
+    import paperpulse.gui.queries_view as qmod
+
+    monkeypatch_target = SlowWorker
+    import pytest
+
+    from unittest.mock import patch
+
+    with patch.object(qmod, "FnWorker", SlowWorker):
+        # 同一 key 连续两次:第二次必须被拒(不新建 worker)
+        ok1 = qv._run_bg("models", lambda: 1, lambda r: None)
+        ok2 = qv._run_bg("models", lambda: 2, lambda r: None)
+        assert ok1 is True and ok2 is False
+    assert calls == ["init"]
+
+
+def test_provider_combo_reflects_saved_url(win):
+    """P2-1:下拉初值按已存 base_url 回显;浏览切换才写库。"""
+    from paperpulse import store as st
+
+    st.save_setting(win.conn, "llm_base_url",
+                    "https://api.deepseek.com/v1")
+    win.queries_view._sync_provider_from_settings()
+    assert win.queries_view.llm_provider.currentText() == "DeepSeek"
+    st.save_setting(win.conn, "llm_base_url", "https://my.own/v9")
+    win.queries_view._sync_provider_from_settings()
+    assert win.queries_view.llm_provider.currentText() == "自定义"
+
+
+def test_fetch_models_preserves_current_model(win, monkeypatch):
+    """P2-2:刷新列表不得静默改写已存 model;不在列表时保留原值。"""
+    from paperpulse import store as st
+    from paperpulse.gui import queries_view as qv
+
+    st.save_setting(win.conn, "llm_base_url", "https://x/v4")
+    st.save_setting(win.conn, "llm_model", "glm-4.7")
+    win.queries_view.llm_model.setCurrentText("glm-4.7")
+    monkeypatch.setattr(qv.llm, "list_models",
+                        lambda cfg: ["aaa-embed", "zzz-chat"])
+
+    class OneWorker:
+        _cbs = []
+
+        class done:
+            @staticmethod
+            def connect(fn):
+                OneWorker._cbs = [fn]  # 实例级语义:每次仅本轮回调
+
+        def __init__(self, fn):
+            self._fn = fn
+
+        def start(self):
+            res = self._fn()
+            for cb in OneWorker._cbs:
+                cb(res)
+
+    monkeypatch.setattr(qv, "FnWorker", OneWorker)
+    win.queries_view._fetch_models()
+    # 库里仍是原模型;下拉文本保留原值
+    assert st.load_settings(win.conn)["llm_model"] == "glm-4.7"
+    assert win.queries_view.llm_model.currentText() == "glm-4.7"

@@ -35,7 +35,7 @@ def _no_other_tracks(monkeypatch):
     monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: iter([]))
     monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
-                        lambda a, b, g: iter([]))
+                        lambda a, b, g, stats=None: iter([]))
 
 
 def test_topic_scan_union_dedup_and_group_accumulation(conn, monkeypatch, capsys):
@@ -132,7 +132,7 @@ def test_subscription_track_integration(conn, monkeypatch):
                         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr(journals_mod, "scan_journals", fake_scan_journals)
     monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
-                        lambda a, b, g: iter([]))
+                        lambda a, b, g, stats=None: iter([]))
     rc = engine.run_scan(conn=conn)
     assert rc == 0
     subs = conn.execute("SELECT id, subscription FROM papers").fetchall()
@@ -153,7 +153,7 @@ def test_biorxiv_track_integration(conn, monkeypatch):
                         lambda q, a, b, page_size=100: iter([]))
     monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: iter([]))
-    monkeypatch.setattr(brx, "scan", lambda a, b, g: iter([preprint]))
+    monkeypatch.setattr(brx, "scan", lambda a, b, g, stats=None: iter([preprint]))
     rc = engine.run_scan(conn=conn)
     assert rc == 0
     row = conn.execute("SELECT source FROM papers WHERE id='10.1101/x'").fetchone()
@@ -168,7 +168,7 @@ def test_all_tracks_fail_exit_3(conn, monkeypatch):
     monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: (_ for _ in ()).throw(SourceError("down")))
     monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
-                        lambda a, b, g: (_ for _ in ()).throw(SourceError("down")))
+                        lambda a, b, g, stats=None: (_ for _ in ()).throw(SourceError("down")))
     rc = engine.run_scan(conn=conn)
     assert rc == 3
 
@@ -308,7 +308,7 @@ def test_biorxiv_matched_groups_survive_prepare(conn, monkeypatch):
     monkeypatch.setattr("paperpulse.sources.journals.scan_journals",
                         lambda c, w, t, mailto=None: iter([]))
     monkeypatch.setattr("paperpulse.sources.biorxiv.scan",
-                        lambda a, b, g: iter([pre]))
+                        lambda a, b, g, stats=None: iter([pre]))
     engine.run_scan(conn=conn)
     mg = json.loads(conn.execute(
         "SELECT matched_groups FROM papers WHERE id='10.13/p'").fetchone()[0])

@@ -19,7 +19,7 @@
 ```bat
 git clone https://github.com/Leo2183/paperpulse.git && cd paperpulse
 pip install -e .[dev]
-pytest                       # 140 用例,离线
+pytest                       # 154 用例,离线
 ```
 
 > 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import paperpulse` 静默失败(pythonw 无控制台)。
@@ -52,7 +52,7 @@ pytest                       # 140 用例,离线
 
 ## LLM 中文导读(可选,默认关)
 
-GUI → 检索式配置 → 源与 LLM:填 OpenAI 兼容 `base_url` / `api_key` / `model`(GLM、DeepSeek、Ollama 均可;base_url 填到 `/v4` 或 `/v4/chat/completions` 皆可)。key 经 Windows DPAPI 加密存本机(拷走 db 到他机不可解)。已有导读持久缓存不重调;无摘要论文自动跳过。
+GUI → 检索式配置 → 源与 LLM:**供应商下拉**(智谱 GLM/Coding Plan、DeepSeek、OpenAI、Kimi、通义、SiliconFlow、火山方舟、xAI、Gemini 兼容、Groq、本地 Ollama/LM Studio、自定义)自动填 `base_url`;填 `api_key` 后**「获取模型列表」**直接拉取可用模型下拉选择(GLM、DeepSeek、Ollama 均可;base_url 填到 `/v4` 或 `/v4/chat/completions` 皆可)。key 经 Windows DPAPI 加密存本机(拷走 db 到他机不可解)。已有导读持久缓存不重调;无摘要论文自动跳过。
 
 ## 打包
 

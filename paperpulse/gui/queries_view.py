@@ -17,40 +17,15 @@ from .. import llm, queries, store
 from ..sources import crossref, journals
 
 
-class BackfillWorker(QThread):
-    """回填线程:conn 必须线程内自建(主线程 conn 跨线程写库即抛异常)。"""
-
-    progress = Signal(int)
-    done = Signal(int)
-
-    def __init__(self, jid):
-        super().__init__()
-        self.jid = jid
-
-    def run(self):
-        from .. import store as store_mod
-
-        conn = store_mod.connect()
-        store_mod.init_db(conn)
-        try:
-            n = journals.backfill_journal(
-                conn, self.jid,
-                progress=self.progress.emit,
-                should_stop=self.isInterruptionRequested,
-            )
-        finally:
-            conn.close()
-        self.done.emit(n)
-
-
 class FnWorker(QThread):
-    """通用后台函数执行(P2-8:主线程不再同步发 HTTP)。"""
+    """通用后台函数执行;done 后自毁,持有者经 _run_bg 防重入(P1-1/P2-8)。"""
 
     done = Signal(object)
 
     def __init__(self, fn):
         super().__init__()
         self._fn = fn
+        self.finished.connect(self.deleteLater)
 
     def run(self):
         try:
@@ -128,9 +103,18 @@ class NewJournalWorker(QThread):
             n = self._run_inner(conn)
         except Exception as e:  # P2-4:失败必须收尾,界面不得永久卡住
             try:
-                self.stage.emit(f"添加/回填失败:{e}")
+                self.stage.emit(f"添加/回填失败:{e};已撤销订阅行,可重试")
             except RuntimeError:
                 pass
+            jid = getattr(self, "_inserted_jid", None)
+            if jid is not None:  # P2-3:删半成品订阅,重复添加可重试
+                try:
+                    conn.execute(
+                        "DELETE FROM journal_subscriptions WHERE id=?", (jid,))
+                    conn.commit()
+                except Exception:
+                    pass
+                self._inserted_jid = None
             n = 0
         finally:
             conn.close()
@@ -160,6 +144,7 @@ class NewJournalWorker(QThread):
             (self.title, self.issn, mode))
         conn.commit()
         jid = cur.lastrowid
+        self._inserted_jid = jid  # 失败时由 run() 回滚(P2-3)
         extra = "" if count >= 0 else "(探测失败,暂按 filter)"
         self.stage.emit(
             f"已添加 {self.title}:90 天 "
@@ -193,11 +178,23 @@ def _terms_text(rows: list[dict]) -> str:
 
 
 class QueriesView(QWidget):
+    def _run_bg(self, key: str, job, done_cb) -> bool:
+        """统一后台入口:同 key 运行中拒绝重入;done 后线程自毁(P1-1)。"""
+        w = self._bg_workers.get(key)
+        if w is not None and w.isRunning():
+            return False
+        worker = FnWorker(job)
+        worker.done.connect(done_cb)
+        self._bg_workers[key] = worker
+        worker.start()
+        return True
+
     def __init__(self, conn, parent_window: QMainWindow | None = None):
         super().__init__()
         self.conn = conn
         self.win = parent_window
         self._worker = None
+        self._bg_workers: dict = {}
         tabs = QTabWidget()
         tabs.addTab(self._build_groups_page(), "检索组")
         tabs.addTab(self._build_journals_page(), "订阅期刊")
@@ -266,7 +263,9 @@ class QueriesView(QWidget):
         from .. import queries as _q
 
         roles = _q.group_roles(self.conn)
-        is_third = bool(roles["annotation"]) and name == roles["annotation"]["name"]
+        ann = roles["annotation"]
+        gid = groups[row]["id"] if 0 <= row < len(groups) else None
+        is_third = bool(ann) and gid == ann["id"]  # 按组 id,改名不可绕过(P3-4)
         if (is_third or "注释" in name) and not refine:
             QMessageBox.warning(
                 self, "refine 必填",
@@ -366,9 +365,7 @@ class QueriesView(QWidget):
             self.j_status.setText(
                 f"{len(res)} 个匹配(精确名优先)" if res else "未找到该刊")
 
-        self._resolve_worker = FnWorker(job)
-        self._resolve_worker.done.connect(done)
-        self._resolve_worker.start()
+        self._run_bg("resolve", job, done)
 
     def _add_journal(self) -> None:
         idx = self.j_matches.currentIndex()
@@ -386,13 +383,17 @@ class QueriesView(QWidget):
         self._worker.stage.connect(lambda msg: self.j_status.setText(msg))
         self._worker.progress.connect(
             lambda n: self.j_status.setText(f"回填中…已处理 {n} 条"))
-        self._worker.done.connect(lambda _n: self._reload_journals())
+        self._worker.done.connect(
+            lambda n: (self._reload_journals(),
+                       self.j_status.setText(
+                           self.j_status.text() if "失败" in self.j_status.text()
+                           else f"回填完成,新增 {n} 篇")))
         self._worker.start()
 
     def _cancel_backfill(self) -> None:
         if self._worker and self._worker.isRunning():
             self._worker.requestInterruption()
-            self.j_status.setText("正在取消回 fill…")
+            self.j_status.setText("正在取消回填…")
 
     def _del_journal(self) -> None:
         row = self.j_table.currentRow()
@@ -458,8 +459,12 @@ class QueriesView(QWidget):
         self._tg_worker.start()
 
     def _audit_modes(self) -> None:
+        w = self._bg_workers.get("audit")
+        if w is not None and w.isRunning():
+            self.j_status.setText("校验仍在进行,请稍候。")
+            return
         self.j_status.setText("校验中(约 32 次请求)…")
-        self._audit_worker = AuditWorker()
+        audit_worker = AuditWorker()
 
         def _show(rows):
             self.j_status.setText("")
@@ -479,8 +484,10 @@ class QueriesView(QWidget):
             msg = (f"校验完成:{len(mism)} 本刊模式与建议不一致" if mism else "校验完成:全部一致")
             QMessageBox.information(self, "模式校验", msg)
 
-        self._audit_worker.done.connect(_show)
-        self._audit_worker.start()
+        audit_worker.done.connect(_show)
+        audit_worker.finished.connect(audit_worker.deleteLater)
+        self._bg_workers["audit"] = audit_worker
+        audit_worker.start()
 
     def _export_subs(self) -> None:
         from PySide6.QtWidgets import QFileDialog
@@ -542,7 +549,9 @@ class QueriesView(QWidget):
         from PySide6.QtWidgets import QComboBox
 
         self.llm_provider = QComboBox()
+        self.llm_provider.blockSignals(True)
         self.llm_provider.addItems(list(llm.PROVIDERS))
+        self.llm_provider.blockSignals(False)
         self.llm_provider.currentTextChanged.connect(self._provider_changed)
         self.llm_url = QLineEdit(s.get("llm_base_url", ""))
         self.llm_url.setPlaceholderText("选择供应商自动填写,或自定义")
@@ -587,6 +596,7 @@ class QueriesView(QWidget):
         form.addRow("LLM model", self.llm_model)
         form.addRow("", fetch_models)
         form.addRow("", test)
+        self._sync_provider_from_settings()
         page = QWidget()
         page.setLayout(form)
         return page
@@ -611,9 +621,20 @@ class QueriesView(QWidget):
 
         if btn:
             btn.setEnabled(False)
-        self._llm_worker = FnWorker(job)
-        self._llm_worker.done.connect(done)
-        self._llm_worker.start()
+        self._run_bg("llm_test", job, done)
+
+    def _sync_provider_from_settings(self) -> None:
+        """按已存 base_url 回显供应商;查不到选「自定义」(P2-1)。"""
+        saved = (store.load_settings(self.conn).get("llm_base_url") or "").strip()
+        match = "自定义"
+        if saved:
+            for name, info in llm.PROVIDERS.items():
+                if info.get("base_url") and info["base_url"] == saved:
+                    match = name
+                    break
+        self.llm_provider.blockSignals(True)
+        self.llm_provider.setCurrentText(match)
+        self.llm_provider.blockSignals(False)
 
     def _provider_changed(self, name: str) -> None:
         info = llm.PROVIDERS.get(name) or {}
@@ -633,13 +654,13 @@ class QueriesView(QWidget):
         if not cfg or not cfg.get("llm_base_url"):
             QMessageBox.warning(self, "未配置", "请先选择供应商或填写 base_url。")
             return
-        self.g_status.setText("获取模型列表中…")
+        self.j_status.setText("获取模型列表中…")
 
         def job():
             return llm.list_models(cfg)
 
         def done(res):
-            self.g_status.setText("")
+            self.j_status.setText("")
             if isinstance(res, Exception):
                 QMessageBox.warning(
                     self, "获取失败",
@@ -649,14 +670,18 @@ class QueriesView(QWidget):
                 QMessageBox.information(self, "模型列表", "供应商返回空列表。")
                 return
             cur = self.llm_model.currentText()
+            self.llm_model.blockSignals(True)  # 刷新期间不写库(P2-2)
             self.llm_model.clear()
             self.llm_model.addItems(res)
             if cur in res:
                 self.llm_model.setCurrentText(cur)
+            else:
+                self.llm_model.setCurrentText(cur)  # 保留原值
+                self.j_status.setText(
+                    f"当前模型 {cur} 不在返回列表中,已保留;可从下拉改选。")
+            self.llm_model.blockSignals(False)
 
-        self._models_worker = FnWorker(job)
-        self._models_worker.done.connect(done)
-        self._models_worker.start()
+        self._run_bg("models", job, done)
 
     def _llm_cfg(self, require_model: bool = True) -> dict | None:
         s = store.load_settings(self.conn)

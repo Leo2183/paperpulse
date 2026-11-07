@@ -1,6 +1,6 @@
 [project]
 name = "paperpulse"
-version = "0.1.0"
+version = "0.1.1"
 description = "Configurable public-paper monitor: topic search, journal subscription, preprints"
 requires-python = ">=3.10"
 dependencies = ["requests", "pyside6"]

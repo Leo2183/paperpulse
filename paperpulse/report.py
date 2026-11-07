@@ -78,6 +78,10 @@ def generate(conn, for_date: date, out_dir=None) -> Path:
         for r in conn.execute("SELECT name, mode FROM journal_subscriptions")
     }
     group_rows, group_names = _tier_ids(conn)
+    enabled_group_names = [
+        r["name"] for r in conn.execute(
+            "SELECT name FROM term_groups WHERE enabled=1 ORDER BY rowid")
+    ] or group_names
     g1 = str(group_rows[0]["id"]) if len(group_rows) >= 1 else None
     g2 = str(group_rows[1]["id"]) if len(group_rows) >= 2 else None
     name1 = group_names[0] if group_names else "核心"
@@ -94,8 +98,8 @@ def generate(conn, for_date: date, out_dir=None) -> Path:
     lines = [
         f"# paperpulse 日报 {for_date.isoformat()}",
         f"新增 {total} 篇(Europe PMC {pmc_cnt} / 订阅 {sub_cnt} / bioRxiv {brx_cnt})"
-        f" | 组:{' '.join(n + '✓' for n in group_names)} | 订阅 {len(modes)} 刊",
-        f"分档:核心(植物+成像){len(tiers['t1'])} | 方法学 {len(tiers['t2'])}"
+        f" | 组:{' '.join(n + '✓' for n in enabled_group_names)} | 订阅 {len(modes)} 刊",
+        f"分档:核心({name1}){len(tiers['t1'])} | {name2} {len(tiers['t2'])}"
         f" | 其他 {len(tiers['t3'])} | 订阅补漏 {len(tiers['catchup'])}"
         "(通常为日报最大一节,属预期)",
         "",
@@ -155,7 +159,8 @@ def generate(conn, for_date: date, out_dir=None) -> Path:
         lines.append(f"- [{t['title']}]({t['url'] or ''}){digest}")
     lines.append("")
 
-    out = (out_dir or config.reports_dir())
+    from pathlib import Path as _P
+    out = _P(out_dir) if out_dir is not None else config.reports_dir()
     if out_dir is not None:
         out.mkdir(parents=True, exist_ok=True)
     path = out / f"{for_date.isoformat()}.md"

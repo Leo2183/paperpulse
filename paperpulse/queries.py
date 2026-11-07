@@ -107,7 +107,6 @@ def _loud_preset_error(path, err) -> None:
     _logging.getLogger(__name__).error(msg)  # GUI(pythonw)下进 scan.log
 
 
-PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 
 def _terms(phrases: list[str]) -> list[Term]:

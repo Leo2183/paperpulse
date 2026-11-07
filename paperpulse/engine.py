@@ -180,11 +180,14 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
                 biorxiv=True,
             )
             try:
-                for p in biorxiv.scan(bw[0], bw[1], groups):
+                bx_stats: dict = {}
+                for p in biorxiv.scan(bw[0], bw[1], groups, stats=bx_stats):
                     t["fetched"] += 1
                     if _upsert(p):  # group_names=None:保留 scan 给出的组命中
                         new_count += 1
                         t["new"] += 1
+                if bx_stats.get("raw"):
+                    t["raw"] = bx_stats["raw"]  # 区分"没抓到"与"没匹配"(P2-5)
             except SourceError as e:
                 log.error("biorxiv track failed: %s", e)
                 errors.append(f"biorxiv: {e}")

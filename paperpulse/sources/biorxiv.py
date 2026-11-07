@@ -68,7 +68,7 @@ def _to_paper(item: dict, groups) -> store.Paper | None:
     )
 
 
-def scan(d_from: date, d_to: date, groups) -> Iterator[store.Paper]:
+def scan(d_from: date, d_to: date, groups, stats: dict | None = None) -> Iterator[store.Paper]:
     """按日期窗逐页(整数页码)拉取,本地组过滤后产出。
 
     页大小由 API 决定(实测 30/页):以 total 为界翻页,不以固定页宽判断。
@@ -82,6 +82,8 @@ def scan(d_from: date, d_to: date, groups) -> Iterator[store.Paper]:
         if msg.get("status") != "ok":
             raise SourceError(f"bioRxiv status: {msg.get('status')}")
         items = body.get("collection", [])
+        if stats is not None:
+            stats["raw"] = stats.get("raw", 0) + len(items)  # 拉取条数(P2-5)
         for it in items:
             try:
                 p = _to_paper(it, groups)

@@ -67,7 +67,6 @@ _BUILTIN_JOURNAL_ROWS = [
 ]
 
 
-PRESETS_DIR = Path(__file__).resolve().parent.parent.parent / "presets"
 
 
 def _load_preset_journals() -> list[dict] | None:
