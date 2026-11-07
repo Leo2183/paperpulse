@@ -11,8 +11,8 @@ from pathlib import Path
 
 from . import config, store
 
-G1 = "植物+空间成像"
-G2 = "MALDI/MSI方法学"
+G1 = "1"  # 组 id(改名不影响分档)
+G2 = "2"
 IMAGING_TAG = "成像/空间"
 ABSTRACT_WORDS = 300
 
@@ -20,7 +20,8 @@ ABSTRACT_WORDS = 300
 def _day_papers(conn, day: date) -> list[dict]:
     prefix = day.isoformat()
     return [dict(r) for r in conn.execute(
-        "SELECT * FROM papers WHERE first_seen LIKE ? ORDER BY pub_date DESC",
+        "SELECT * FROM papers WHERE first_seen LIKE ?"
+        " AND COALESCE(stale,0)=0 ORDER BY pub_date DESC",
         (prefix + "%",),
     ).fetchall()]
 

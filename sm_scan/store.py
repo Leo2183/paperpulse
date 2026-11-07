@@ -10,7 +10,7 @@ from typing import TypedDict
 
 from . import config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_SETTINGS = {
     "schema_version": "1",
@@ -152,8 +152,34 @@ def _get_schema_version(conn) -> int:
 
 
 def _migrate(conn, current: int) -> None:
-    # 按 schema_version 顺序追加迁移步骤;v1 起步无历史迁移
-    pass
+    """按 schema_version 顺序执行迁移(spec §6)。"""
+    if current < 2:
+        _migrate_v2(conn)
+
+
+def _migrate_v2(conn) -> None:
+    # v2:P1-2 stale 列;P1-3 matched_groups 由组名改为组 id
+    cols = {r["name"] for r in conn.execute(
+        "SELECT name FROM pragma_table_info('papers')")}
+    if "stale" not in cols:
+        conn.execute("ALTER TABLE papers ADD COLUMN stale INTEGER DEFAULT 0")
+    id_by_name = {r["name"]: str(r["id"]) for r in conn.execute(
+        "SELECT id, name FROM term_groups")}
+    if id_by_name:
+        rows = conn.execute(
+            "SELECT id, matched_groups FROM papers"
+        ).fetchall()
+        for row in rows:
+            try:
+                groups = json.loads(row["matched_groups"] or "[]")
+            except ValueError:
+                continue
+            mapped = sorted({id_by_name.get(g, g) for g in groups})
+            if mapped != groups:
+                conn.execute(
+                    "UPDATE papers SET matched_groups=? WHERE id=?",
+                    (json.dumps(mapped, ensure_ascii=False), row["id"]))
+    conn.commit()
 
 
 def _with_lock_retry(fn, attempts: int = 3, delay: float = 0.2):
@@ -189,8 +215,8 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
                 "INSERT INTO papers (id, doi, pmcid, title, authors, journal,"
                 " pub_date, indexed_date, source, sources, subscription, url,"
                 " abstract, tags, matched_groups, status, starred, to_read,"
-                " llm_digest, first_seen, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " llm_digest, first_seen, updated_at, stale)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     p["id"], p["doi"], p["pmcid"], p["title"], p["authors"],
                     p["journal"], p["pub_date"], p["indexed_date"], p["source"],
@@ -199,6 +225,7 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
                     json.dumps(p["matched_groups"]), p.get("status", "unread"),
                     p.get("starred", 0), p.get("to_read", 0), p["llm_digest"],
                     first_seen, now,
+                    1 if p.get("_stale") else 0,
                 ),
             )
             conn.commit()
@@ -211,12 +238,14 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
             " url=COALESCE(?, url), journal=COALESCE(?, journal),"
             " indexed_date=COALESCE(?, indexed_date),"
             " updated_at=?, sources=?,"
-            " subscription=?, matched_groups=? WHERE id=?",
+            " subscription=?, matched_groups=?,"
+            " stale=MAX(COALESCE(stale,0), ?) WHERE id=?",
             (
                 p["abstract"], p["url"], p["journal"], p["indexed_date"], now,
                 json.dumps(sorted(old_sources | set(p["sources"]))),
                 sub,
                 json.dumps(sorted(old_groups | set(p["matched_groups"]))),
+                1 if p.get("_stale") else 0,
                 p["id"],
             ),
         )
@@ -236,9 +265,10 @@ def seed_groups(conn, rows: list[dict]) -> None:
     if conn.execute("SELECT COUNT(*) FROM term_groups").fetchone()[0]:
         return
     conn.executemany(
-        "INSERT INTO term_groups (name, enabled, terms, refine) VALUES (?,?,?,?)",
+        "INSERT INTO term_groups (id, name, enabled, terms, refine)"
+        " VALUES (?,?,?,?,?)",
         [
-            (r["name"], int(r.get("enabled", 1)),
+            (r.get("id"), r["name"], int(r.get("enabled", 1)),
              json.dumps(r["terms"], ensure_ascii=False),
              json.dumps(r["refine"], ensure_ascii=False))
             for r in rows

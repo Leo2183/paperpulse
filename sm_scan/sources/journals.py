@@ -189,10 +189,20 @@ def backfill_journal(
     row = dict(conn.execute(
         "SELECT * FROM journal_subscriptions WHERE id=?", (jid,)).fetchone())
     window = (today - timedelta(days=BACKFILL_DAYS), today)
+    from .. import queries as _q
+
+    groups = [_q.from_row(r) for r in conn.execute(
+        "SELECT * FROM term_groups WHERE enabled=1").fetchall()]
+    g3 = next((g for g in groups if "注释" in g.name), None)
+    g3_phrases = [t.phrase for t in g3.terms] if g3 else []
+    started = today.isoformat() + "T00:00:00"
     n = seen = 0
     for p, _ in _scan_one(conn, row, window, today, mailto=mailto):
         if should_stop and should_stop():
             break
+        prepare.prepare_paper(
+            p, group_names=[], g3_phrases=g3_phrases,
+            started=started, subscription=row["name"])
         if store.upsert_paper(conn, p):
             n += 1
         seen += 1

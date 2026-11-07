@@ -58,7 +58,7 @@ def test_topic_scan_union_dedup_and_group_accumulation(conn, monkeypatch, capsys
     assert n == 2  # 并集去重
     mg = json.loads(conn.execute(
         "SELECT matched_groups FROM papers WHERE id='10.1/a'").fetchone()[0])
-    assert set(mg) == {"植物+空间成像", "MALDI/MSI方法学"}
+    assert set(mg) == {"1", "2"}  # 组 id
     run = conn.execute("SELECT status, new_count FROM runs ORDER BY id DESC").fetchone()
     assert run["status"] == "ok" and run["new_count"] == 2
     # 组1 命中的论文带标签
@@ -242,3 +242,28 @@ def test_llm_flag_invokes_batch(conn, monkeypatch):
     store.save_setting(conn, "llm_base_url", "")
     rc2 = engine.run_scan(conn=conn, llm=True)
     assert rc2 == 0
+
+
+def test_matched_groups_stored_as_ids(conn, monkeypatch):
+    monkeypatch.setattr(
+        "sm_scan.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([_paper("10.8/i", "Hit")]))
+    engine.run_scan(conn=conn)
+    mg = json.loads(conn.execute(
+        "SELECT matched_groups FROM papers WHERE id='10.8/i'").fetchone()[0])
+    # fake 对三组都产出该论文:三组 id 均记(P1-3 存 id 不存名)
+    assert sorted(mg) == ["1", "2", "3"]
+
+
+def test_partial_run_does_not_advance_window(conn):
+    """P2-3:窗口锚定仅认 status='ok' 的 run;partial 不推进。"""
+    conn.execute(
+        "INSERT INTO runs (started_at, finished_at, status) VALUES"
+        " ('2026-11-05T09:00:00','2026-11-05T09:02:00','partial')")
+    conn.commit()
+    assert engine.last_ok_finished(conn) is None  # partial 不算
+    conn.execute(
+        "INSERT INTO runs (started_at, finished_at, status) VALUES"
+        " ('2026-11-06T09:00:00','2026-11-06T09:02:00','ok')")
+    conn.commit()
+    assert engine.last_ok_finished(conn).isoformat() == "2026-11-06"

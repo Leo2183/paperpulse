@@ -69,16 +69,16 @@ def _terms(phrases: list[str]) -> list[Term]:
 
 DEFAULT_GROUPS: list[TermGroup] = [
     TermGroup(
-        name="植物+空间成像",
+        id=1, name="植物+空间成像",
         terms=_terms(_GROUP1_TERMS),
         refine=_terms(_GROUP1_REFINE),
     ),
     TermGroup(
-        name="MALDI/MSI方法学",
+        id=2, name="MALDI/MSI方法学",
         terms=_terms(_GROUP2_TERMS),
     ),
     TermGroup(
-        name="产物注释",
+        id=3, name="产物注释",
         terms=_terms(_GROUP3_TERMS),
         refine=_terms(_GROUP3_REFINE),
     ),

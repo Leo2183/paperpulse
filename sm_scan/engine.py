@@ -7,7 +7,7 @@ import re
 import time
 from datetime import date, timedelta
 
-from . import queries, store, tags
+from . import prepare, queries, store, tags
 from .sources import biorxiv, europepmc, journals
 from .sources.base import SourceError
 
@@ -83,7 +83,7 @@ def dates_ok(pub_date: str | None, window: tuple[date, date]) -> bool:
 
 def last_ok_finished(conn) -> date | None:
     row = conn.execute(
-        "SELECT finished_at FROM runs WHERE status IN ('ok','partial')"
+        "SELECT finished_at FROM runs WHERE status = 'ok'"
         " ORDER BY id DESC LIMIT 1"
     ).fetchone()
     if not row or not row["finished_at"]:
@@ -110,7 +110,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         store.init_db(conn)
         if not conn.execute("SELECT COUNT(*) FROM term_groups").fetchone()[0]:
             store.seed_groups(conn, [
-                dict(name=g.name, enabled=1,
+                dict(id=g.id, name=g.name, enabled=1,
                      terms=[{"phrase": t.phrase, "scope": t.scope} for t in g.terms],
                      refine=[{"phrase": t.phrase, "scope": t.scope} for t in g.refine])
                 for g in queries.DEFAULT_GROUPS
@@ -158,8 +158,10 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             enabled_tracks.add(name)
             return d
 
-        def _upsert(p) -> bool:
-            p["first_seen"] = started  # 跨零点归属:统一 run 起始时刻
+        def _upsert(p, *, group_names=None, subscription=None) -> bool:
+            prepare.prepare_paper(
+                p, group_names=group_names or [], g3_phrases=g3_phrases,
+                started=started, subscription=subscription)
             return store.upsert_paper(conn, p)
 
         # --- 轨道1:Europe PMC 主题检索 ---
@@ -172,9 +174,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
                         queries.to_europepmc_query(g, *window), *window
                     ):
                         t["fetched"] += 1
-                        p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
-                        p["matched_groups"] = [g.name]
-                        if _upsert(p):
+                        if _upsert(p, group_names=[str(g.id)]):
                             new_count += 1
                             t["new"] += 1
                     any_ok = True
@@ -196,10 +196,8 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
                     mailto=settings.get("crossref_mailto") or None,
                 ):
                     t["fetched"] += 1
-                    stale = p.pop("_stale", False)  # 注册日保护:只入库不计新增
-                    p["subscription"] = jrow["name"]
-                    p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
-                    if _upsert(p) and not stale:
+                    stale = p.get("_stale", False)  # 注册日保护:只入库不计新增
+                    if _upsert(p, subscription=jrow["name"]) and not stale:
                         new_count += 1
                         t["new"] += 1
             except SourceError as e:
@@ -220,8 +218,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             try:
                 for p in biorxiv.scan(bw[0], bw[1], groups):
                     t["fetched"] += 1
-                    p["tags"] = tags.assign(p["title"], p["abstract"], g3_phrases)
-                    if _upsert(p):
+                    if _upsert(p):  # group_names=None:保留 scan 给出的组命中
                         new_count += 1
                         t["new"] += 1
             except SourceError as e:

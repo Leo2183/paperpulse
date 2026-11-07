@@ -34,7 +34,7 @@ def test_biorxiv_strips_jats_and_filters_by_groups(page):
     assert "<" not in p["abstract"] and "MALDI imaging" in p["abstract"]
     assert p["source"] == "biorxiv"
     # 组2 ⊃ 组1(spec §4.2):双命中正确,报告层负责归一档
-    assert set(p["matched_groups"]) == {"植物+空间成像", "MALDI/MSI方法学"}
+    assert set(p["matched_groups"]) == {"1", "2"}  # 组 id(P1-3)
 
 
 def test_biorxiv_refine_and_semantics(page):

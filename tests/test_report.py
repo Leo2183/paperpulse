@@ -24,10 +24,10 @@ def _paper(pid, title, **kw):
 def filled(conn):  # 来自 conftest
     papers = [
         # 一档:命中组1
-        _paper("10.1/a", "Plant MSI core", matched_groups=["植物+空间成像"],
+        _paper("10.1/a", "Plant MSI core", matched_groups=["1"],
                tags=["植物", "成像/空间"]),
         # 二档:仅组2
-        _paper("10.1/b", "MALDI methods", matched_groups=["MALDI/MSI方法学"],
+        _paper("10.1/b", "MALDI methods", matched_groups=["2"],
                tags=["成像/空间"]),
         # 三档:无组无订阅
         _paper("10.1/c", "Other topic", matched_groups=[]),
@@ -115,7 +115,19 @@ def test_subscription_paper_with_group_hit_tiered_by_group(conn):
     """spec §12:订阅刊论文同时命中检索组 → 按组分档,不进补漏节。"""
     store.upsert_paper(conn, _paper(
         "10.3/a", "Plant MSI in Nature journal",
-        matched_groups=["植物+空间成像"], subscription="Nature"))
+        matched_groups=["1"], subscription="Nature"))
     text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
     assert "一、核心:植物+空间成像(1)" in text
     assert "订阅补漏 0" in text  # 头部分档行;空补漏不输出节
+
+
+def test_tier_by_group_id_and_stale_excluded(conn):
+    """P1-3 分档按组 id;P1-2 stale 论文不进日报。"""
+    store.upsert_paper(conn, _paper("10.8/a", "Core by id",
+                                    matched_groups=["1"]))
+    stale = _paper("10.8/old", "Stale one")
+    stale["_stale"] = True
+    store.upsert_paper(conn, stale)
+    text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
+    assert "一、核心:植物+空间成像(1)" in text
+    assert "Stale one" not in text

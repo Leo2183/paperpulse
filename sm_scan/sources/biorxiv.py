@@ -32,7 +32,7 @@ def _group_hits(title: str, abstract: str | None, groups) -> list[str]:
             continue
         if g.refine and not any(t.phrase.lower() in text for t in g.refine):
             continue
-        hits.append(g.name)
+        hits.append(str(g.id))
     return hits
 
 
