@@ -124,33 +124,51 @@ class NewJournalWorker(QThread):
 
         conn = store_mod.connect()
         store_mod.init_db(conn)
-        n = 0
         try:
-            settings = store_mod.load_settings(conn)
-            self.stage.emit(f"探测 {self.title} 近 90 天发文量…")
+            n = self._run_inner(conn)
+        except Exception as e:  # P2-4:失败必须收尾,界面不得永久卡住
             try:
-                count = crossref.count_recent(
-                    self.issn, mailto=settings.get("crossref_mailto") or None)
-            except Exception:
-                count = -1
-            mode = journals.suggest_mode(count) if count >= 0 else "filter"
-            cur = conn.execute(
-                "INSERT INTO journal_subscriptions (name, issn, mode, route,"
-                " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
-                (self.title, self.issn, mode))
-            conn.commit()
-            jid = cur.lastrowid
-            extra = "" if count >= 0 else "(探测失败,暂按 filter)"
-            self.stage.emit(
-                f"已添加 {self.title}:90 天 "
-                f"{count if count >= 0 else '?'} 条,模式 {mode}{extra};回填中…")
-            n = journals.backfill_journal(
-                conn, jid, progress=self.progress.emit,
-                should_stop=self.isInterruptionRequested,
-                mailto=settings.get("crossref_mailto") or None)
+                self.stage.emit(f"添加/回填失败:{e}")
+            except RuntimeError:
+                pass
+            n = 0
         finally:
             conn.close()
-        self.done.emit(n)
+            self.done.emit(n)
+
+    def _run_inner(self, conn) -> int:
+        """探测→入库→回填;异常由 run() 统一收尾(P2-4)。"""
+        from .. import store as store_mod
+
+        settings = store_mod.load_settings(conn)
+        dup = conn.execute(
+            "SELECT id FROM journal_subscriptions WHERE issn=?",
+            (self.issn,)).fetchone()
+        if dup:
+            self.stage.emit(f"{self.title} 已在订阅列表中,跳过重复添加")
+            return 0
+        self.stage.emit(f"探测 {self.title} 近 90 天发文量…")
+        try:
+            count = crossref.count_recent(
+                self.issn, mailto=settings.get("crossref_mailto") or None)
+        except Exception:
+            count = -1
+        mode = journals.suggest_mode(count) if count >= 0 else "filter"
+        cur = conn.execute(
+            "INSERT INTO journal_subscriptions (name, issn, mode, route,"
+            " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
+            (self.title, self.issn, mode))
+        conn.commit()
+        jid = cur.lastrowid
+        extra = "" if count >= 0 else "(探测失败,暂按 filter)"
+        self.stage.emit(
+            f"已添加 {self.title}:90 天 "
+            f"{count if count >= 0 else '?'} 条,模式 {mode}{extra};回填中…")
+        n = journals.backfill_journal(
+            conn, jid, progress=self.progress.emit,
+            should_stop=self.isInterruptionRequested,
+            mailto=settings.get("crossref_mailto") or None)
+        return n
 
 
 def _parse_terms(text: str) -> list[dict]:

@@ -375,3 +375,31 @@ def test_default_view_shows_all_dates_and_partial_dates(win):
     titles2 = [lv.table.item(i, 1).text()
                for i in range(lv.table.rowCount())]
     assert "Partial date one" in titles2
+
+
+def test_new_journal_worker_survives_exception(qapp, tmp_path, monkeypatch):
+    """P2-4:回填抛异常也必须发 done(界面不永久卡'回填中…')。"""
+    from paperpulse import config
+    from paperpulse.gui.queries_view import NewJournalWorker
+    from paperpulse.sources import journals as jmod
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)  # 隔离库,绝不触生产数据
+
+    def boom(conn, jid, **kw):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(jmod, "backfill_journal", boom)
+    stages, dones = [], []
+
+    class _S:
+        @staticmethod
+        def connect(fn):
+            stages.append if False else None
+            return None
+
+    w = NewJournalWorker("X", "0000-0000")
+    w.stage.connect(stages.append)
+    w.done.connect(dones.append)
+    w.run()  # 同线程直接执行 run 体
+    assert dones, "异常路径必须发射 done"
+    assert any("失败" in s for s in stages)
