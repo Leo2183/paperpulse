@@ -245,7 +245,10 @@ class QueriesView(QWidget):
         gid = groups[row]["id"]
         name = self.g_name.text().strip()
         refine = _parse_terms(self.g_refine.toPlainText())
-        is_third = (self.group_list.currentRow() == 2)  # 第 3 组(位置语义)
+        from .. import queries as _q
+
+        roles = _q.group_roles(self.conn)
+        is_third = bool(roles["annotation"]) and name == roles["annotation"]["name"]
         if (is_third or "注释" in name) and not refine:
             QMessageBox.warning(
                 self, "refine 必填",

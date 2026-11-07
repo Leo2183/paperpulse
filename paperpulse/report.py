@@ -15,12 +15,10 @@ IMAGING_TAG = "成像/空间"
 
 
 def _tier_ids(conn) -> tuple[list, list[str]]:
-    """当前启用组(按 id 升序):第 1 组→一档,第 2 组→二档(位置语义,换主题生效)。"""
-    rows = [dict(r) for r in conn.execute(
-        "SELECT id, name FROM term_groups WHERE enabled=1 ORDER BY id")]
-    if not rows:  # 空组表(异常态)兜底默认主题组
-        rows = [dict(id=g.id, name=g.name)
-                for g in queries.get_default_groups() if g.enabled]
+    """分档角色:全组(含禁用)按插入序——禁用组1 时一档为空,组2 不顶位(P2-2)。"""
+    roles = queries.group_roles(conn)
+    rows = [r for r in (roles["tier1"], roles["tier2"], roles["annotation"])
+            if r is not None]
     return rows, [r["name"] for r in rows]
 ABSTRACT_WORDS = 300
 

@@ -84,9 +84,9 @@ def test_preset_loading_and_fallback(tmp_path, monkeypatch):
                     "terms": [{"phrase": "cryo-EM", "scope": "title_abs"}],
                     "refine": []}]
     }), encoding="utf-8")
-    monkeypatch.setattr(queries, "PRESETS_DIR", tmp_path)
+    monkeypatch.setattr("paperpulse.config.presets_dir", lambda: tmp_path)
     groups = queries.get_default_groups()
     assert len(groups) == 1 and groups[0].name == "自定义组"
 
-    monkeypatch.setattr(queries, "PRESETS_DIR", tmp_path / "empty")
+    monkeypatch.setattr("paperpulse.config.presets_dir", lambda: tmp_path / "empty")
     assert len(queries.get_default_groups()) == 3  # 内置兜底

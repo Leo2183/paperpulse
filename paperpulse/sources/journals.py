@@ -72,13 +72,15 @@ PRESETS_DIR = Path(__file__).resolve().parent.parent.parent / "presets"
 
 def _load_preset_journals() -> list[dict] | None:
     """空订阅清单是合法配置(有意不订阅),不回退(P2-2);损坏响亮回退。"""
-    from ..queries import _preset_files, _loud_preset_error
+    from ..queries import _loud_preset_error, _preset_files
 
-    files = _preset_files(PRESETS_DIR)
+    files = _preset_files()  # 统一 config.presets_dir()(P2-1)
     if files is None:
         return None
     try:
         data = json.loads(files[0].read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise TypeError(f"预设顶层必须是对象,得到 {type(data).__name__}(P1-1)")
         rows = data.get("journals", [])
         return [dict(name=r["name"], issn=r["issn"], mode=r["mode"])
                 for r in rows if r.get("name") and r.get("issn")]
@@ -219,10 +221,7 @@ def backfill_journal(
     window = (today - timedelta(days=BACKFILL_DAYS), today)
     from .. import queries as _q
 
-    groups = [_q.from_row(r) for r in conn.execute(
-        "SELECT * FROM term_groups WHERE enabled=1").fetchall()]
-    g3 = next((g for g in groups if "注释" in g.name), None)
-    g3_phrases = [t.phrase for t in g3.terms] if g3 else []
+    g3_phrases = _q.annotation_phrases(conn)  # 与引擎共用(P2-3)
     started = today.isoformat() + "T00:00:00"
     n = seen = 0
     for p, _ in _scan_one(conn, row, window, today, mailto=mailto):

@@ -209,11 +209,11 @@ def test_preset_journals_loading(tmp_path, monkeypatch):
     (tmp_path / "t.json").write_text(json.dumps(
         {"journals": [{"name": "Neuron", "issn": "0896-6273", "mode": "filter"}]}),
         encoding="utf-8")
-    monkeypatch.setattr(journals, "PRESETS_DIR", tmp_path)
+    monkeypatch.setattr("paperpulse.config.presets_dir", lambda: tmp_path)
     rows = journals.get_default_journals()
     assert rows == [dict(name="Neuron", issn="0896-6273", mode="filter")]
 
-    monkeypatch.setattr(journals, "PRESETS_DIR", tmp_path / "none")
+    monkeypatch.setattr("paperpulse.config.presets_dir", lambda: tmp_path / "none")
     assert len(journals.get_default_journals()) == 32  # 内置兜底
 
 

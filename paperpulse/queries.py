@@ -71,6 +71,8 @@ def _load_preset_groups() -> list[TermGroup] | None:
         return None
     try:
         data = json.loads(files[0].read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise TypeError(f"预设顶层必须是对象,得到 {type(data).__name__}(P1-1)")
         return [
             TermGroup(
                 id=g.get("id"), name=g["name"],
@@ -86,21 +88,23 @@ def _load_preset_groups() -> list[TermGroup] | None:
 
 
 def _preset_files(d=None):
+    """预设文件定位:统一走 config.presets_dir()(exe 旁优先,P2-1)。"""
     from . import config as _config
 
-    d = d if (d is not None and d.is_dir()) else (
-        PRESETS_DIR if PRESETS_DIR.is_dir() else _config.presets_dir())
-    if not d.is_dir():
+    dd = d if d is not None else _config.presets_dir()
+    if not Path(dd).is_dir():
         return None
-    files = sorted(d.glob("*.json"))
+    files = sorted(Path(dd).glob("*.json"))
     return files or None
 
 
 def _loud_preset_error(path, err) -> None:
+    import logging as _logging
     import sys as _sys
 
     msg = f"[presets] {path.name} 解析失败({err}),回退内置默认"
     print(msg, file=_sys.stderr)
+    _logging.getLogger(__name__).error(msg)  # GUI(pythonw)下进 scan.log
 
 
 PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
@@ -172,3 +176,34 @@ class _GroupsProxy:
 
 
 DEFAULT_GROUPS = _GroupsProxy()
+
+
+def group_roles(conn) -> dict:
+    """组角色(全组含禁用,按插入序 rowid,P2-2):
+    tier1=第1组、tier2=第2组、annotation=第3组(产物注释语义)。
+    引擎/日报/回填/GUI 共用,禁用组不改变角色位置。
+    """
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM term_groups ORDER BY rowid")]
+    if not rows:
+        rows = [dict(id=g.id, name=g.name)
+                for g in get_default_groups()]
+    return {
+        "tier1": rows[0] if len(rows) >= 1 else None,
+        "tier2": rows[1] if len(rows) >= 2 else None,
+        "annotation": rows[2] if len(rows) >= 3 else None,
+    }
+
+
+def annotation_phrases(conn) -> list[str]:
+    """注释标签短语:第 3 组的 terms(引擎与回填共用,P2-3)。"""
+    roles = group_roles(conn)
+    a = roles["annotation"]
+    if not a:
+        return []
+    row = conn.execute(
+        "SELECT terms FROM term_groups WHERE id=?", (a["id"],)).fetchone()
+    if not row:
+        return []
+    return [t.get("phrase") for t in json.loads(row["terms"])
+            if t.get("phrase")]
