@@ -10,3 +10,7 @@ build/
 .venv/
 *.egg-info/
 .superpowers/
+
+# 评审与设计过程文档(非代码产物,仅本地保留)
+审查报告/
+docs/superpowers/
