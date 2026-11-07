@@ -222,7 +222,15 @@ def test_digest_button_to_worker_seam(win, monkeypatch):
 
     built = {}
 
+    class _Sig:
+        @staticmethod
+        def connect(fn):
+            pass
+
     class FakeWorker:
+        progress = _Sig()
+        done = _Sig()
+
         def __init__(self, *args):
             built["args"] = args
 
