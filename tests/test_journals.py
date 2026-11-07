@@ -104,7 +104,7 @@ def test_seeds_thirty_two_journals_and_modes(conn, monkeypatch):
         "SELECT COUNT(*) FROM journal_subscriptions WHERE mode='full'").fetchone()[0]
     filters = conn.execute(
         "SELECT COUNT(*) FROM journal_subscriptions WHERE mode='filter'").fetchone()[0]
-    assert fulls == 13 and filters == 19
+    assert fulls == 12 and filters == 20  # FC:X 迁 filter 后(P1-7)
     # IJMS 降 filter 保留(用户要求宽覆盖)
     ijms = conn.execute(
         "SELECT mode FROM journal_subscriptions WHERE name LIKE '%Molecular Sciences%'").fetchone()
@@ -174,3 +174,30 @@ def test_probe_passes_mailto_to_crossref(conn, monkeypatch):
         "SELECT id FROM journal_subscriptions WHERE name LIKE 'International Journal of Mass%'").fetchone()[0]
     journals.route(conn, jid, (date(2026, 11, 1), TODAY), mailto=settings_mailto)
     assert seen["mailto"] == settings_mailto
+
+
+def test_food_chem_x_is_filter():
+    """P1-7:FC:X 90 天 ≈720 条,按自家 ≤300 规则应判 filter。"""
+    fc = next(r for r in journals.DEFAULT_JOURNAL_ROWS
+              if r["name"] == "Food Chemistry: X")
+    assert fc["mode"] == "filter"
+
+
+def test_audit_modes_reports_mismatch(monkeypatch, conn):
+    monkeypatch.setattr(
+        journals.crossref, "count_recent",
+        lambda issn, days=90, mailto=None: 75 if issn == "1044-0305" else 400)
+    monkeypatch.setattr(
+        journals.europepmc, "search",
+        lambda q, a, b, page_size=100: iter([]))
+    monkeypatch.setattr(
+        journals.crossref, "fetch_journal",
+        lambda issn, a, b, mailto=None, today=None: iter([]))
+    store.seed_journals(conn, journals.DEFAULT_JOURNAL_ROWS)
+    rows = journals.audit_modes(conn)
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["Journal of the American Society for Mass Spectrometry"]["mismatch"] is False
+    # TrAC 当前 full,实测 400 条 → 建议 filter → mismatch
+    assert by_name["TrAC Trends in Analytical Chemistry"]["mismatch"] is True
+    # filter 刊 400 条与建议一致 → 不 mismatch
+    assert by_name["Nature"]["mismatch"] is False

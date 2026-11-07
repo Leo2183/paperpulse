@@ -33,6 +33,8 @@ def main(argv=None) -> int:
     rp.add_argument("--date", default=None, help="YYYY-MM-DD")
 
     tk = sub.add_parser("task", help="manage scheduled task")
+
+    jn = sub.add_parser("journals", help="audit journal modes vs 90d volume")
     tk.add_argument("action", choices=["register", "remove", "status"])
 
     args = parser.parse_args(argv)
@@ -79,6 +81,22 @@ def main(argv=None) -> int:
             return 0
         print(("OK: " if ok else "FAIL: ") + msg)
         return 0 if ok else 1
+
+    if args.cmd == "journals":
+        from . import store as _store
+        from .sources import journals as _j
+
+        conn = _store.connect()
+        _store.init_db(conn)
+        if not conn.execute(
+                "SELECT COUNT(*) FROM journal_subscriptions").fetchone()[0]:
+            _j.store.seed_journals(conn, _j.DEFAULT_JOURNAL_ROWS)
+        print(f"{'journal':44s} {'mode':7s} {'90d':>6s} {'suggest':8s} mismatch")
+        for r in _j.audit_modes(conn):
+            print(f"{r['name'][:44]:44s} {r['mode']:7s} "
+                  f"{r['count_90d']:>6d} {r['suggested'] or '-':8s} "
+                  f"{'YES' if r['mismatch'] else ''}")
+        return 0
 
     if args.cmd == "gui":
         from .gui.app import main as gui_main

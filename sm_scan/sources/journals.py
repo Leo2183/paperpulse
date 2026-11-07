@@ -62,7 +62,7 @@ DEFAULT_JOURNAL_ROWS = [
     dict(name="Natural Product Reports", issn="0265-0568", mode="full"),
     dict(name="Trends in Plant Science", issn="1360-1385", mode="full"),
     dict(name="Horticulture Research", issn="2052-7276", mode="full"),
-    dict(name="Food Chemistry: X", issn="2590-1575", mode="full"),
+    dict(name="Food Chemistry: X", issn="2590-1575", mode="filter"),  # 90d≈720>300(P1-7)
 ]
 
 
@@ -209,3 +209,26 @@ def backfill_journal(
         if progress:
             progress(seen)
     return n
+
+
+def audit_modes(conn, mailto: str | None = None) -> list[dict]:
+    """逐刊实测 90 天发文量,给出当前模式与建议模式的差异(P1-7)。
+
+    mismatch=True 表示当前模式与 suggest_mode 建议不一致。
+    每刊一次网络请求(约 32 次 × 1s),供 CLI `journals` 与 GUI 批量校验。
+    """
+    out = []
+    for r in conn.execute(
+        "SELECT name, issn, mode, enabled FROM journal_subscriptions ORDER BY id"
+    ).fetchall():
+        try:
+            count = crossref.count_recent(r["issn"], mailto=mailto)
+        except Exception:
+            count = -1  # 探测失败:不算 0 条(避免误建议 full)
+        suggested = suggest_mode(count) if count >= 0 else None
+        out.append(dict(
+            name=r["name"], issn=r["issn"], mode=r["mode"],
+            enabled=bool(r["enabled"]), count_90d=count, suggested=suggested,
+            mismatch=(suggested is not None and suggested != r["mode"]),
+        ))
+    return out

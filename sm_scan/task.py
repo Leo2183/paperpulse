@@ -67,10 +67,20 @@ def release_lock() -> None:
 
 def _scan_command() -> str:
     if getattr(sys, "frozen", False):
-        exe = Path(sys.executable).with_name("sm-scan.exe")
+        # 双目录布局:GUI 在 dist/sm-scan-gui/,CLI 在 dist/sm-scan/
+        exe = Path(sys.executable).parent.parent / "sm-scan" / "sm-scan.exe"
         return f'"{exe}" scan'
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     return f'"{pythonw}" -m sm_scan scan'
+
+
+def _command_target(cmd: str) -> Path | None:
+    import shlex
+
+    try:
+        return Path(shlex.split(cmd.replace("\\", "/"))[0].strip('"'))
+    except (ValueError, IndexError):
+        return None
 
 
 def _selfcheck() -> tuple[bool, str]:
@@ -90,7 +100,13 @@ def register() -> tuple[bool, str]:
     ok, err = _selfcheck()
     if not ok:
         return False, f"自检失败(先 pip install -e .):{err}"
+    tr = _scan_command()
+    target = _command_target(tr)
+    if target is not None and not target.exists():
+        return False, f"目标程序不存在:{target}(打包目录需包含 sm-scan/sm-scan.exe)"
     cmd = [
+        "schtasks", "/Create", "/TN", TASK_NAME,
+        "/TR", tr,
         "schtasks", "/Create", "/TN", TASK_NAME,
         "/TR", _scan_command(),
         "/SC", "DAILY", "/ST", "09:00", "/F",

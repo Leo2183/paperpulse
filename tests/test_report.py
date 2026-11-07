@@ -131,3 +131,16 @@ def test_tier_by_group_id_and_stale_excluded(conn):
     text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
     assert "一、核心:植物+空间成像(1)" in text
     assert "Stale one" not in text
+
+
+def test_report_journal_counts_and_backfill_note(conn):
+    """P1-7:补漏节前给每刊计数;首跑(库内 run 少)标注回填预期。"""
+    for i in range(3):
+        store.upsert_paper(conn, _paper(
+            f"10.9/{i}", f"Nature paper {i}", subscription="Nature"))
+    conn.execute("INSERT INTO runs (started_at, finished_at, status)"
+                 " VALUES ('2026-11-06T09:00:00','2026-11-06T09:05:00','ok')")
+    conn.commit()
+    text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
+    assert "Nature × 3" in text
+    assert "首跑回填" in text

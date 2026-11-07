@@ -75,6 +75,7 @@ class PaperListView(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
+        self.table.setSortingEnabled(True)
         self.table.currentCellChanged.connect(self._show_detail)
         self.table.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
@@ -128,6 +129,10 @@ class PaperListView(QWidget):
         if self.f_title.text().strip():
             where.append("title LIKE ?")
             params.append(f"%{self.f_title.text().strip()}%")
+        d_from = self.f_from.date().toString("yyyy-MM-dd")
+        d_to = self.f_to.date().toString("yyyy-MM-dd")
+        where.append("substr(pub_date,1,10) BETWEEN ? AND ?")
+        params.extend([d_from, d_to])
         sql = "SELECT * FROM papers"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -135,6 +140,7 @@ class PaperListView(QWidget):
         return sql, params
 
     def reload(self) -> None:
+        self.table.setSortingEnabled(False)
         sql, params = self._query()
         rows = [dict(r) for r in self.conn.execute(sql, params).fetchall()]
         self._rows = rows
@@ -157,6 +163,7 @@ class PaperListView(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, r["id"])
                 self.table.setItem(i, col, item)
         self.table.setRowCount(len(rows))
+        self.table.setSortingEnabled(True)
 
     def _current_row(self) -> dict | None:
         i = self.table.currentRow()

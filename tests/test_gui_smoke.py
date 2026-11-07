@@ -242,3 +242,24 @@ def test_digest_button_to_worker_seam(win, monkeypatch):
     assert built.get("args") and len(built["args"]) == 2, \
         "调用点必须以 (papers, cfg) 两参构造 DigestWorker"
     assert built.get("started")
+
+
+def test_date_range_filter_wired(win):
+    """P1-4:日期筛选必须影响查询结果。"""
+    lv = win.list_view
+    lv.reload()
+    all_n = lv.table.rowCount()
+    # 窗口设为只含 10.1/b(11-02)而不含 10.1/a(11-01)
+    from datetime import date
+
+    from PySide6.QtCore import QDate
+
+    lv.f_from.setDate(QDate(2026, 11, 2))
+    lv.f_to.setDate(QDate(2026, 11, 2))
+    lv.reload()
+    assert lv.table.rowCount() == 1
+    lv.f_from.setDate(QDate(2026, 10, 1))
+    lv.f_to.setDate(QDate(2026, 12, 31))
+    lv.reload()
+    assert lv.table.rowCount() == all_n
+    assert lv.table.isSortingEnabled()

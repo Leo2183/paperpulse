@@ -99,3 +99,39 @@ def test_cli_exit_code_passthrough(monkeypatch):
     monkeypatch.setattr(main_mod, "setup_logging", lambda: None)
     monkeypatch.setattr("sm_scan.engine.run_scan", lambda **kw: 3)
     assert main_mod.main(["scan"]) == 3
+
+
+def test_scan_command_frozen_points_to_cli_dir(monkeypatch):
+    """P1-5:打包态 GUI 注册的任务必须指向真实存在的 CLI exe。"""
+    import sys as _sys
+    from pathlib import Path
+
+    fake_gui = Path("D:/fake/dist/sm-scan-gui/sm-scan-gui.exe")
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    monkeypatch.setattr(_sys, "executable", str(fake_gui))
+    cmd = task._scan_command()
+    assert "sm-scan-gui" not in cmd
+    assert "sm-scan" in cmd
+
+
+def test_register_refuses_when_target_missing(monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(task, "_selfcheck", lambda: (True, ""))
+    monkeypatch.setattr(task, "_scan_command",
+                        lambda: r'"D:\no\such\sm-scan.exe" scan')
+
+    def fake_run(cmd, **kw):
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(sp, "run", fake_run)
+    seen = []
+    monkeypatch.setattr(sp, "run",
+                        lambda cmd, **kw: seen.append(cmd) or fake_run(cmd, **kw))
+    ok, msg = task.register()
+    assert ok is False
+    assert not seen  # 目标不存在时不得调 schtasks

@@ -103,6 +103,16 @@ def generate(conn, for_date: date) -> Path:
         lines.append(
             f"## 四、订阅补漏({len(tiers['catchup'])},未命中任何检索式,"
             "来自订阅刊,确定性补齐)")
+        per_journal = {}
+        for p in tiers["catchup"]:
+            name = p["subscription"] or "?"
+            per_journal[name] = per_journal.get(name, 0) + 1
+        counts = " | ".join(
+            f"{k} × {v}" for k, v in sorted(
+                per_journal.items(), key=lambda kv: -kv[1]))
+        lines.append(f"每刊计数:{counts}")
+        if conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] <= 2:
+            lines.append("(首跑回填,单日量大属预期;日常窗口会回落)")
         a = [p for p in tiers["catchup"] if modes.get(p["subscription"]) != "full"]
         b = [p for p in tiers["catchup"] if modes.get(p["subscription"]) == "full"]
         lines.append(f"### 4a 巨刊筛选(filter,标 [订阅])")
