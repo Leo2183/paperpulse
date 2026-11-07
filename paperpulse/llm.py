@@ -20,6 +20,48 @@ SYSTEM_PROMPT = (
 )
 
 
+# 常用供应商预设(供应商下拉 → 自动填 base_url)
+PROVIDERS = {
+    "智谱 GLM": {"base_url": "https://open.bigmodel.cn/api/paas/v4"},
+    "DeepSeek": {"base_url": "https://api.deepseek.com/v1"},
+    "OpenAI": {"base_url": "https://api.openai.com/v1"},
+    "Moonshot Kimi": {"base_url": "https://api.moonshot.cn/v1"},
+    "阿里通义(兼容模式)": {"base_url":
+        "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+    "OpenRouter": {"base_url": "https://openrouter.ai/api/v1"},
+    "Ollama (local)": {"base_url": "http://localhost:11434/v1",
+                       "needs_key": False},
+    "LM Studio (local)": {"base_url": "http://localhost:1234/v1",
+                          "needs_key": False},
+    "自定义": {"base_url": "", "custom": True},
+}
+
+
+def models_endpoint(base_url: str) -> str:
+    u = base_url.rstrip("/")
+    if u.endswith("/chat/completions"):
+        u = u[: -len("/chat/completions")]
+    return u + "/models"
+
+
+def list_models(cfg: dict, timeout: int = 30) -> list[str]:
+    """列出供应商可用模型(OpenAI 兼容 GET /models)。"""
+    url = models_endpoint(cfg["llm_base_url"])
+    headers = {}
+    if cfg.get("llm_api_key"):
+        headers["Authorization"] = f"Bearer {cfg['llm_api_key']}"
+    resp = requests.get(url, headers=headers, timeout=timeout)
+    if resp.status_code != 200:
+        raise SourceError(
+            f"list models HTTP {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise SourceError(f"non-JSON model list: {resp.text[:120]}") from e
+    ids = [m["id"] for m in data.get("data", []) if m.get("id")]
+    return sorted(ids)
+
+
 def normalize_base_url(u: str) -> str:
     u = u.rstrip("/")
     if not u.endswith("/chat/completions"):

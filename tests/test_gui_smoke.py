@@ -388,7 +388,11 @@ def test_new_journal_worker_survives_exception(qapp, tmp_path, monkeypatch):
     def boom(conn, jid, **kw):
         raise RuntimeError("disk full")
 
+    from paperpulse.sources import crossref as cf_mod
+
     monkeypatch.setattr(jmod, "backfill_journal", boom)
+    monkeypatch.setattr(cf_mod, "count_recent",
+                        lambda *a, **k: 10)  # 钉死:绝不真发网络
     stages, dones = [], []
 
     class _S:
@@ -403,3 +407,62 @@ def test_new_journal_worker_survives_exception(qapp, tmp_path, monkeypatch):
     w.run()  # 同线程直接执行 run 体
     assert dones, "异常路径必须发射 done"
     assert any("失败" in s for s in stages)
+
+
+def test_llm_provider_autofills_and_fetch_models(win, monkeypatch):
+    """供应商切换自动填 URL;获取模型列表填下拉。"""
+    from paperpulse.gui import queries_view as qv
+
+    qv0 = win.queries_view
+    qv0.llm_provider.setCurrentText("Ollama (local)")
+    assert qv0.llm_url.text() == "http://localhost:11434/v1"
+
+    monkeypatch.setattr(
+        qv.llm, "list_models",
+        lambda cfg: ["glm-4.7", "glm-4-flash"])
+
+    class SyncWorker:
+        done = type("S", (), {"connect": staticmethod(lambda fn: None)})()
+
+        def __init__(self, fn):
+            self._fn = fn
+
+        def start(self):
+            self.result = self._fn()
+            for cb in SyncWorker.done._cbs if hasattr(SyncWorker.done, "_cbs") else []:
+                cb(self.result)
+
+    captured = {}
+
+    class CapWorker(SyncWorker):
+        def __init__(self, fn):
+            super().__init__(fn)
+            captured["fn"] = fn
+
+    # 直接调用 handler 内部逻辑(FnWorker mock 为同步派发)
+    class OneWorker:
+        def __init__(self, fn):
+            self._fn = fn
+
+        class done:
+            _cbs = []
+
+            @staticmethod
+            def connect(fn):
+                OneWorker.done._cbs.append(fn)
+
+        def start(self):
+            res = self._fn()
+            for cb in list(OneWorker.done._cbs):
+                cb(res)
+
+    monkeypatch.setattr(qv, "FnWorker", OneWorker)
+    from paperpulse import store as st2
+
+    win.queries_view.llm_provider.setCurrentText("智谱 GLM")
+    st2.save_setting(win.conn, "llm_base_url",
+                     win.queries_view.llm_url.text())
+    win.queries_view._fetch_models()
+    combo = win.queries_view.llm_model
+    texts = [combo.itemText(i) for i in range(combo.count())]
+    assert "glm-4.7" in texts and "glm-4-flash" in texts

@@ -121,3 +121,56 @@ def conn(tmp_path, monkeypatch):
     c = store.connect()
     store.init_db(c)
     return c
+
+
+def test_providers_have_base_urls_and_local_flags():
+    """供应商预设:每项有 base_url;本地项(Ollama/LM Studio)标记免 key。"""
+    from paperpulse.llm import PROVIDERS
+
+    assert len(PROVIDERS) >= 6
+    for name, info in PROVIDERS.items():
+        if not info.get("custom"):
+            assert info["base_url"].startswith("http"), name
+        assert isinstance(info.get("needs_key", True), bool)
+    assert PROVIDERS["Ollama (local)"]["needs_key"] is False
+    assert "bigmodel" in PROVIDERS["智谱 GLM"]["base_url"]
+
+
+def test_list_models_parses_openai_format(monkeypatch):
+    from paperpulse import llm as m
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "glm-4.7"}, {"id": "glm-4-flash"}]}
+
+    calls = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        calls["url"] = url
+        calls["auth"] = headers.get("Authorization", "")
+        return Resp()
+
+    monkeypatch.setattr(m.requests, "get", fake_get)
+    out = m.list_models(
+        dict(llm_base_url="https://x/v4", llm_api_key="sk-1"))
+    assert out == ["glm-4-flash", "glm-4.7"]  # 排序返回
+    assert calls["url"].endswith("/models")
+    assert calls["auth"] == "Bearer sk-1"
+
+
+def test_list_models_error_raises_source_error(monkeypatch):
+    from paperpulse import llm as m
+    from paperpulse.sources.base import SourceError
+
+    class Resp:
+        status_code = 401
+        text = "unauthorized"
+
+    monkeypatch.setattr(m.requests, "get",
+                        lambda *a, **kw: Resp())
+    import pytest
+
+    with pytest.raises(SourceError):
+        m.list_models(dict(llm_base_url="https://x/v4", llm_api_key="bad"))
