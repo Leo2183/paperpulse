@@ -243,7 +243,8 @@ class QueriesView(QWidget):
         gid = groups[row]["id"]
         name = self.g_name.text().strip()
         refine = _parse_terms(self.g_refine.toPlainText())
-        if "注释" in name and not refine:
+        is_third = (self.group_list.currentRow() == 2)  # 第 3 组(位置语义)
+        if (is_third or "注释" in name) and not refine:
             QMessageBox.warning(
                 self, "refine 必填",
                 "组3(产物注释)的 refine 不能为空——清空会引入大量非质谱噪音。")

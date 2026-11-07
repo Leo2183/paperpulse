@@ -250,10 +250,9 @@ def test_date_range_filter_wired(win):
     lv.reload()
     all_n = lv.table.rowCount()
     # 窗口设为只含 10.1/b(11-02)而不含 10.1/a(11-01)
-    from datetime import date
-
     from PySide6.QtCore import QDate
 
+    lv.c_all_dates.setChecked(False)  # 启用日期窗(P1-4:默认全日期)
     lv.f_from.setDate(QDate(2026, 11, 2))
     lv.f_to.setDate(QDate(2026, 11, 2))
     lv.reload()
@@ -349,3 +348,30 @@ def test_selection_after_sort_marks_right_paper(win):
     row = win.conn.execute(
         "SELECT title FROM papers WHERE starred=1").fetchall()
     assert len(row) == 1 and row[0]["title"] == "AAA oldest"
+
+
+def test_default_view_shows_all_dates_and_partial_dates(win):
+    """P1-4:默认全日期;部分日期(年月)论文不受窗口 BETWEEN 误滤。"""
+    from paperpulse import store as st
+
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.15/old", doi="10.15/old", pmcid=None, title="Partial date one",
+        authors=None, journal="J", pub_date="2024-05", indexed_date=None,
+        source="crossref", sources=["crossref"], subscription=None,
+        url=None, abstract=None, tags=[], matched_groups=[], status="unread",
+        starred=0, to_read=0, llm_digest=None, first_seen="2026-11-07T07:00:00",
+        updated_at=None))
+    lv = win.list_view
+    lv.c_all_dates.setChecked(True)  # 默认即 True
+    lv.reload()
+    titles = [lv.table.item(i, 1).text()
+              for i in range(lv.table.rowCount())]
+    assert "Partial date one" in titles  # 默认全量可见
+    # 关闭全日期后,部分日期论文仍应显示(不能被 BETWEEN 永久滤掉)
+    lv.c_all_dates.setChecked(False)
+    lv.f_from.setDate(__import__("PySide6.QtCore", fromlist=["QDate"]).QDate(2026, 10, 1))
+    lv.f_to.setDate(__import__("PySide6.QtCore", fromlist=["QDate"]).QDate(2026, 12, 31))
+    lv.reload()
+    titles2 = [lv.table.item(i, 1).text()
+               for i in range(lv.table.rowCount())]
+    assert "Partial date one" in titles2

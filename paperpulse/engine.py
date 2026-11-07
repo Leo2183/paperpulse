@@ -78,7 +78,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
         settings = store.load_settings(conn)
         groups = [queries.from_row(r) for r in store.load_groups(conn)]
         groups = [g for g in groups if g.enabled]
-        g3 = next((g for g in groups if "注释" in g.name), None)
+        g3 = groups[2] if len(groups) >= 3 else None  # 第 3 组(位置语义,通用主题)
         g3_phrases = [t.phrase for t in g3.terms] if g3 else []
 
         window = scan_window(

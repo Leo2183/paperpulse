@@ -60,7 +60,7 @@ def test_report_sections_and_counts(filled, conn, tmp_path):
     text = path.read_text(encoding="utf-8")
     # 三档 + 补漏 4a/4b
     assert "一、核心:植物+空间成像(1)" in text
-    assert "二、方法学:MALDI/MSI(1)" in text
+    assert "二、MALDI/MSI方法学(1)" in text
     assert "三、其他(1)" in text
     assert "四、订阅补漏" in text
     assert "4a" in text and "[订阅]" in text
@@ -172,3 +172,21 @@ def test_entry_polish_no_mode_fallback_no_dup_marks(conn):
                     if l.startswith(("Alice A", "A et al")) and "来源" in l)
     assert src_line.count("[订阅]") == 0  # 标记只在标题行,来源行不重复
     assert "摘要未提供" in text and "(Crossref)" not in text
+
+
+def test_tiering_follows_active_preset_groups(conn):
+    """P1-3:分档按当前 term_groups 位置,不认死内置 id/标题(换主题生效)。"""
+    conn.execute("DELETE FROM term_groups")
+    conn.executemany(
+        "INSERT INTO term_groups (id, name, enabled, terms, refine) VALUES (?,?,?,?,?)",
+        [(11, "microbiome core", 1, "[]", "[]"),
+         (12, "omics methods", 1, "[]", "[]")])
+    conn.commit()
+    store.upsert_paper(conn, _paper("10.14/a", "Gut metagenome paper",
+                                    matched_groups=["11"]))
+    store.upsert_paper(conn, _paper("10.14/b", "Methods paper",
+                                    matched_groups=["12"]))
+    text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
+    assert "microbiome core" in text and "Gut metagenome paper" in text
+    assert "omics methods" in text and "Methods paper" in text
+    assert "植物+空间成像" not in text and "MALDI/MSI" not in text

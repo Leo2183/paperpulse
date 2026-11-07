@@ -9,11 +9,19 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import config, store
+from . import config, queries, store
 
-G1 = "1"  # 组 id(改名不影响分档)
-G2 = "2"
 IMAGING_TAG = "成像/空间"
+
+
+def _tier_ids(conn) -> tuple[list, list[str]]:
+    """当前启用组(按 id 升序):第 1 组→一档,第 2 组→二档(位置语义,换主题生效)。"""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM term_groups WHERE enabled=1 ORDER BY id")]
+    if not rows:  # 空组表(异常态)兜底默认主题组
+        rows = [dict(id=g.id, name=g.name)
+                for g in queries.get_default_groups() if g.enabled]
+    return rows, [r["name"] for r in rows]
 ABSTRACT_WORDS = 300
 
 
@@ -26,13 +34,13 @@ def _day_papers(conn, day: date) -> list[dict]:
     ).fetchall()]
 
 
-def _tier(p: dict) -> str:
+def _tier(p: dict, g1: str, g2: str) -> str:
     groups = set(json.loads(p["matched_groups"] or "[]"))
     tags = set(json.loads(p["tags"] or "[]"))
     # 组命中优先于订阅(spec §12:订阅刊论文同时命中检索组按组分档,不进补漏)
-    if G1 in groups:
+    if g1 in groups:
         return "t1"
-    if G2 in groups or IMAGING_TAG in tags:
+    if g2 in groups or IMAGING_TAG in tags:
         return "t2"
     if p["subscription"]:
         return "catchup"
@@ -65,15 +73,20 @@ def _count(day: list[dict], pred) -> int:
     return sum(1 for p in day if pred(p))
 
 
-def generate(conn, for_date: date) -> Path:
+def generate(conn, for_date: date, out_dir=None) -> Path:
     day = _day_papers(conn, for_date)
     modes = {
         r["name"]: r["mode"]
         for r in conn.execute("SELECT name, mode FROM journal_subscriptions")
     }
+    group_rows, group_names = _tier_ids(conn)
+    g1 = str(group_rows[0]["id"]) if len(group_rows) >= 1 else None
+    g2 = str(group_rows[1]["id"]) if len(group_rows) >= 2 else None
+    name1 = group_names[0] if group_names else "核心"
+    name2 = group_names[1] if len(group_names) > 1 else "方法学"
     tiers = {"t1": [], "t2": [], "t3": [], "catchup": []}
     for p in day:
-        tiers[_tier(p)].append(p)
+        tiers[_tier(p, g1, g2)].append(p)
 
     sub_cnt = _count(day, lambda p: bool(p["subscription"]))
     pmc_cnt = _count(day, lambda p: not p["subscription"] and p["source"] == "europepmc")
@@ -83,15 +96,15 @@ def generate(conn, for_date: date) -> Path:
     lines = [
         f"# paperpulse 日报 {for_date.isoformat()}",
         f"新增 {total} 篇(Europe PMC {pmc_cnt} / 订阅 {sub_cnt} / bioRxiv {brx_cnt})"
-        f" | 组1✓ 组2✓ 组3✓ | 订阅 {len(modes)} 刊",
+        f" | 组:{' '.join(n + '✓' for n in group_names)} | 订阅 {len(modes)} 刊",
         f"分档:核心(植物+成像){len(tiers['t1'])} | 方法学 {len(tiers['t2'])}"
         f" | 其他 {len(tiers['t3'])} | 订阅补漏 {len(tiers['catchup'])}"
         "(通常为日报最大一节,属预期)",
         "",
     ]
     sections = [
-        (f"## 一、核心:植物+空间成像({len(tiers['t1'])})", tiers["t1"]),
-        (f"## 二、方法学:MALDI/MSI({len(tiers['t2'])})", tiers["t2"]),
+        (f"## 一、核心:{name1}({len(tiers['t1'])})", tiers["t1"]),
+        (f"## 二、{name2}({len(tiers['t2'])})", tiers["t2"]),
         (f"## 三、其他({len(tiers['t3'])})", tiers["t3"]),
     ]
     for head, ps in sections:
@@ -144,7 +157,10 @@ def generate(conn, for_date: date) -> Path:
         lines.append(f"- [{t['title']}]({t['url'] or ''}){digest}")
     lines.append("")
 
-    path = config.reports_dir() / f"{for_date.isoformat()}.md"
+    out = (out_dir or config.reports_dir())
+    if out_dir is not None:
+        out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{for_date.isoformat()}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
 

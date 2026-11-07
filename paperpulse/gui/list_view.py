@@ -44,6 +44,10 @@ class PaperListView(QWidget):
         self.f_status.addItems(["全部状态", "unread", "read", "archived"])
         self.f_tag = QComboBox()
         self.f_tag.addItems(["全部标签", "成像/空间", "植物", "注释"])
+        self.c_all_dates = QCheckBox("全部日期")
+        self.c_all_dates.setChecked(True)
+        self.c_all_dates.stateChanged.connect(self.reload)
+        self.filter_hint = QLabel("")
         self.c_starred = QCheckBox("仅星标")
         self.c_to_read = QCheckBox("仅待精读")
         self.f_title = QLineEdit()
@@ -61,9 +65,11 @@ class PaperListView(QWidget):
         self.f_title.textChanged.connect(self.reload)
 
         bar = QHBoxLayout()
-        for w in (QLabel("从"), self.f_from, QLabel("到"), self.f_to,
+        for w in (self.c_all_dates, QLabel("从"), self.f_from, QLabel("到"),
+                  self.f_to,
                   self.f_source, self.f_status, self.f_tag,
-                  self.c_starred, self.c_to_read, self.f_title, btn):
+                  self.c_starred, self.c_to_read, self.f_title, btn,
+                  self.filter_hint):
             bar.addWidget(w)
 
         # 表格
@@ -129,15 +135,24 @@ class PaperListView(QWidget):
         if self.f_title.text().strip():
             where.append("title LIKE ?")
             params.append(f"%{self.f_title.text().strip()}%")
-        d_from = self.f_from.date().toString("yyyy-MM-dd")
-        d_to = self.f_to.date().toString("yyyy-MM-dd")
-        where.append("substr(pub_date,1,10) BETWEEN ? AND ?")
-        params.extend([d_from, d_to])
+        if not self.c_all_dates.isChecked():
+            d_from = self.f_from.date().toString("yyyy-MM-dd")
+            d_to = self.f_to.date().toString("yyyy-MM-dd")
+            # 部分日期(年月/年,如 Crossref 回溯)不因 BETWEEN 永久隐藏(P1-4)
+            where.append(
+                "(substr(pub_date,1,10) BETWEEN ? AND ?"
+                " OR pub_date IS NULL OR length(pub_date) < 10)")
+            params.extend([d_from, d_to])
         sql = "SELECT * FROM papers"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY pub_date DESC LIMIT 2000"
+        self._update_filter_hint(where)
         return sql, params
+
+    def _update_filter_hint(self, where) -> None:
+        n = len(where)
+        self.filter_hint.setText(f"筛选中({n} 项)" if n else "全部")
 
     def reload(self) -> None:
         self.table.setSortingEnabled(False)
