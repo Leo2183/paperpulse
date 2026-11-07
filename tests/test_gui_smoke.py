@@ -299,11 +299,22 @@ def test_resolve_and_audit_run_in_thread_without_main_conn(win, monkeypatch):
         lambda text, mailto=None: [("Nature", "0028-0836")])
 
     class SyncWorker:
+        """同步 FakeWorker:job 执行后立即派发 done。"""
+
+        _cb = []
+
+        class done:
+            @staticmethod
+            def connect(fn):
+                SyncWorker._cb.append(fn)
+
         def __init__(self, fn):
             self._fn = fn
 
         def start(self):
-            self._fn()
+            res = self._fn()
+            for cb in list(SyncWorker._cb):
+                cb(res)
 
     monkeypatch.setattr(qv, "FnWorker", SyncWorker)
     win.queries_view._resolve_journal()
