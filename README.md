@@ -2,7 +2,7 @@
 
 可配置的**公开论文定期扫描器**:按主题检索式 + 期刊订阅 + 预印本三轨监控新论文,SQLite 落库、Markdown 日报、桌面 GUI、Windows 任务计划每日自动运行。**全程零 API key、零注册**(Europe PMC / Crossref / bioRxiv 均匿名免费)。
 
-默认预置**空间代谢组学**主题包(MALDI 成像 / 植物天然产物 / 产物注释 + 32 本期刊含 CNS);换主题只需编辑 `presets/` 下的一份 JSON。
+监控什么、订哪些刊,全部由 `presets/` 下的一份 JSON 主题包定义——换研究方向只需编辑一个文件。
 
 ## 三轨架构
 
@@ -40,7 +40,7 @@ pytest                       # 120 用例,离线
 
 ### 自定义主题(presets)
 
-默认数据全部来自 `presets/spatial-metabolomics.json`(3 检索组 + 32 刊),fork 后改这份 JSON 即成你自己的监控器;多份主题包并存时按文件名排序取第一份。详见 [presets/README.md](presets/README.md)。
+首次运行自动加载 `presets/` 中的主题包(多份并存时按文件名排序取第一份);fork 后编辑或替换这份 JSON 即成你自己的监控器。详见 [presets/README.md](presets/README.md)。
 
 ### 首次运行预期
 
