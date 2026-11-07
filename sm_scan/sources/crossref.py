@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterator
 from datetime import date, timedelta
 
-from .. import engine, store
+from .. import ids, store
 from .base import http_get
 
 log = logging.getLogger(__name__)
@@ -63,11 +63,11 @@ def _authors_display(item: dict) -> str | None:
 
 
 def _to_paper(item: dict, today: date) -> store.Paper:
-    doi = engine.normalize_doi(item.get("DOI"))
+    doi = ids.normalize_doi(item.get("DOI"))
     title = (item.get("title") or [""])[0].strip()
     pub = _issued_date(item)
     p = store.Paper(
-        id=engine.paper_key(doi, title),
+        id=ids.paper_key(doi, title),
         doi=doi,
         pmcid=None,
         title=title,

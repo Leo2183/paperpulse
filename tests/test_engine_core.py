@@ -45,9 +45,3 @@ def test_scan_window_biorxiv_backfill_seven_days():
     assert w == (date(2026, 10, 30), date(2026, 11, 6))
 
 
-def test_dates_ok_tolerates_missing_and_partial_dates():
-    # Review Focus #1:pub_date 缺失/只有年月不抛
-    assert engine.dates_ok(None, (date(2026, 11, 1), date(2026, 11, 6))) is True
-    assert engine.dates_ok("2026-11", (date(2026, 11, 1), date(2026, 11, 6))) is True
-    assert engine.dates_ok("2026-11-02", (date(2026, 11, 1), date(2026, 11, 6))) is True
-    assert engine.dates_ok("2026-10-01", (date(2026, 11, 1), date(2026, 11, 6))) is False

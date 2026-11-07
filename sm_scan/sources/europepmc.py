@@ -7,7 +7,7 @@ import logging
 from collections.abc import Iterator
 from datetime import date
 
-from .. import engine, store
+from .. import ids, store
 from .base import SourceError, http_post
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ def _authors_display(author_string: str | None) -> str | None:
 
 
 def _to_paper(r: dict) -> store.Paper:
-    doi = engine.normalize_doi(r.get("doi"))
+    doi = ids.normalize_doi(r.get("doi"))
     title = (r.get("title") or "").strip()
     url = f"https://doi.org/{doi}" if doi else None
     # 字段名对齐真实 core 响应(第06轮 P0-1):
@@ -39,7 +39,7 @@ def _to_paper(r: dict) -> store.Paper:
         import re as _re
         abstract = _html.unescape(_re.sub(r"<[^>]+>", "", abstract)).strip()
     return store.Paper(
-        id=engine.paper_key(doi, title),
+        id=ids.paper_key(doi, title),
         doi=doi,
         pmcid=r.get("pmcid"),
         title=title,

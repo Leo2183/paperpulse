@@ -10,7 +10,7 @@ import re
 from collections.abc import Iterator
 from datetime import date
 
-from .. import engine, store
+from .. import ids, store
 from .base import SourceError, http_get
 
 log = logging.getLogger(__name__)
@@ -42,9 +42,9 @@ def _to_paper(item: dict, groups) -> store.Paper | None:
     matched = _group_hits(title, abstract, groups)
     if not matched:
         return None
-    doi = engine.normalize_doi(item.get("doi"))
+    doi = ids.normalize_doi(item.get("doi"))
     return store.Paper(
-        id=engine.paper_key(doi, title),
+        id=ids.paper_key(doi, title),
         doi=doi,
         pmcid=None,
         title=title,
