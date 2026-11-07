@@ -174,3 +174,13 @@ def test_list_models_error_raises_source_error(monkeypatch):
 
     with pytest.raises(SourceError):
         m.list_models(dict(llm_base_url="https://x/v4", llm_api_key="bad"))
+
+
+def test_providers_include_codingplan_and_common_compat():
+    from paperpulse.llm import PROVIDERS
+
+    assert "/api/coding/paas/v4" in PROVIDERS["智谱 GLM (Coding Plan)"]["base_url"]
+    assert PROVIDERS["SiliconFlow"]["base_url"].startswith("https://api.siliconflow")
+    assert "volces.com" in PROVIDERS["火山方舟 Ark"]["base_url"]
+    assert "api.x.ai" in PROVIDERS["xAI Grok"]["base_url"]
+    assert "openai" in PROVIDERS["Google Gemini (兼容)"]["base_url"]

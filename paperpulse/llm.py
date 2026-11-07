@@ -23,6 +23,14 @@ SYSTEM_PROMPT = (
 # 常用供应商预设(供应商下拉 → 自动填 base_url)
 PROVIDERS = {
     "智谱 GLM": {"base_url": "https://open.bigmodel.cn/api/paas/v4"},
+    "智谱 GLM (Coding Plan)":
+        {"base_url": "https://open.bigmodel.cn/api/coding/paas/v4"},
+    "SiliconFlow": {"base_url": "https://api.siliconflow.cn/v1"},
+    "火山方舟 Ark": {"base_url": "https://ark.cn-beijing.volces.com/api/v3"},
+    "xAI Grok": {"base_url": "https://api.x.ai/v1"},
+    "Google Gemini (兼容)":
+        {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai"},
+    "Groq": {"base_url": "https://api.groq.com/openai/v1"},
     "DeepSeek": {"base_url": "https://api.deepseek.com/v1"},
     "OpenAI": {"base_url": "https://api.openai.com/v1"},
     "Moonshot Kimi": {"base_url": "https://api.moonshot.cn/v1"},
