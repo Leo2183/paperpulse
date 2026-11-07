@@ -35,6 +35,7 @@ class ScanWorker(QThread):
         handler = _QtLogHandler(self.log_line.emit)
         root = logging.getLogger()
         root.addHandler(handler)
+        rc = 3
         try:
             rc = engine.run_scan()
             try:
@@ -42,6 +43,8 @@ class ScanWorker(QThread):
                 report.generate(conn, engine.last_report_date(conn))
             except Exception:
                 self.log_line.emit("日报生成失败(可稍后 sm_scan report 重试)")
+        except Exception as e:  # P2-6:非 SourceError 也必须收尾,防按钮永久禁用
+            self.log_line.emit(f"扫描异常终止:{e}")
         finally:
             root.removeHandler(handler)
         self.finished_code.emit(rc)

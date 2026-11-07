@@ -125,6 +125,9 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             last_ok_finished(conn), date.today(),
             backfill_days=int(days or settings.get("backfill_days", "30")),
         )
+        if days:  # P2-5:显式 --days 时扩大窗口(起点取更早者)
+            forced = date.today() - timedelta(days=days)
+            window = (min(window[0], forced), window[1])
 
         if dry_run:
             for g in groups:

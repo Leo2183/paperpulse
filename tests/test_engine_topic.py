@@ -267,3 +267,22 @@ def test_partial_run_does_not_advance_window(conn):
         " ('2026-11-06T09:00:00','2026-11-06T09:02:00','ok')")
     conn.commit()
     assert engine.last_ok_finished(conn).isoformat() == "2026-11-06"
+
+
+def test_days_flag_expands_window(conn, monkeypatch):
+    """P2-5:--days 在已有 ok run 时也生效(起点取更早者)。"""
+    conn.execute(
+        "INSERT INTO runs (started_at, finished_at, status) VALUES"
+        " ('2026-11-06T09:00:00','2026-11-06T09:02:00','ok')")
+    conn.commit()
+    windows = []
+
+    def fake_search(q, d_from, d_to, page_size=100):
+        windows.append((d_from, d_to))
+        return iter([])
+
+    monkeypatch.setattr("sm_scan.sources.europepmc.search", fake_search)
+    engine.run_scan(conn=conn, days=40)
+    assert windows
+    span = (date.today() - windows[0][0]).days
+    assert span >= 40

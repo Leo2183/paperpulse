@@ -128,9 +128,12 @@ def remove() -> tuple[bool, str]:
 
 
 def status() -> dict:
-    r = subprocess.run(
-        ["schtasks", "/Query", "/TN", TASK_NAME],
-        capture_output=True, text=True, errors="replace",
-    )
+    try:
+        r = subprocess.run(
+            ["schtasks", "/Query", "/TN", TASK_NAME],
+            capture_output=True, text=True, errors="replace",
+        )
+    except (OSError, PermissionError) as e:  # P2-7:组策略/权限拦截不得炸 GUI
+        return {"registered": False, "raw": f"查询失败:{e}"}
     return {"registered": r.returncode == 0,
             "raw": (r.stdout or r.stderr or "")[:500]}
