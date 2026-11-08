@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QMessageBox
 
 from .. import llm, store
+from .queries_view import FnWorker
 
 COLUMNS = ["日期", "标题", "期刊", "来源", "标签", "旗标"]
 
@@ -341,6 +342,10 @@ class PaperListView(QWidget):
                 | QMessageBox.StandardButton.Discard)
             if box.exec() == QMessageBox.StandardButton.Apply:
                 self._apply_digest(pid, res)
+
+        self._digest_test_worker = FnWorker(job)  # 调度执行(修复:此前从未启动)
+        self._digest_test_worker.done.connect(done)
+        self._digest_test_worker.start()
 
     def _apply_digest(self, pid: str, text: str) -> None:
         self.conn.execute(

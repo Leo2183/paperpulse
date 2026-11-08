@@ -651,3 +651,68 @@ def test_reload_preserves_selection_by_id(win):
     assert pid == "10.21/keep", "reload 后选中跳到了别的论文"
     # 详情面板也应是同一篇
     assert "Keep me" in lv.detail.toPlainText()
+
+
+def test_digest_test_button_actually_runs(win, monkeypatch):
+    """防回归:「测试总结效果」必须真的调度 job 并恢复按钮(曾漏启动永久卡住)。"""
+    from paperpulse import store as st
+    from paperpulse.gui import list_view as lv_mod
+
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.22/a", doi="10.22/a", pmcid=None, title="Digest test",
+        authors=None, journal="J", pub_date="2026-11-07", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest=None,
+        first_seen="2026-11-08T09:00:00", updated_at=None))
+    st.save_setting(win.conn, "llm_base_url", "https://x/v4")
+    st.save_setting(win.conn, "llm_model", "m")
+    lv = win.list_view
+    lv.reload()
+    for row in range(lv.table.rowCount()):
+        from PySide6.QtCore import Qt as _Q
+        if lv.table.item(row, 0).data(_Q.ItemDataRole.UserRole) == "10.22/a":
+            lv.table.setCurrentCell(row, 0)
+            break
+    ran = {"job": False, "done": False}
+
+    def fake_digest(p, cfg):
+        ran["job"] = True
+        return "总结文本"
+
+    monkeypatch.setattr(lv_mod.llm, "digest", fake_digest)
+
+    class SyncW:
+        def __init__(self, fn):
+            self._fn = fn
+
+        class done:
+            cbs = []
+
+            @staticmethod
+            def connect(fn):
+                SyncW.done.cbs = [fn]
+
+        def start(self):
+            res = self._fn()
+            for cb in SyncW.done.cbs:
+                cb(res)
+
+    class Box:
+        StandardButton = __import__("PySide6.QtWidgets", fromlist=["QMessageBox"]).QMessageBox.StandardButton
+
+        def __init__(self, *a):
+            pass
+
+        def exec(self):
+            return Box.StandardButton.Discard.value
+
+    for name in ("setWindowTitle", "setText", "setInformativeText",
+                 "setStandardButtons"):
+        setattr(Box, name, lambda *a, **k: None)
+    monkeypatch.setattr(lv_mod, "FnWorker", SyncW)
+    monkeypatch.setattr(lv_mod, "QMessageBox", Box)  # 整体打桩防模态阻塞
+    lv._test_digest_effect()
+    assert ran["job"], "job 从未被调度(按钮会永久停在'总结中…')"
+    assert lv.btn_digest_test.isEnabled()
+    assert lv.btn_digest_test.text() == "测试总结效果(当前提示词)"
