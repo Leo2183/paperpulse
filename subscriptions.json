@@ -1,0 +1,164 @@
+{
+ "journals": [
+  {
+   "name": "International Journal of Molecular Sciences",
+   "issn": "1422-0067",
+   "mode": "filter"
+  },
+  {
+   "name": "Analytical Chemistry",
+   "issn": "0003-2700",
+   "mode": "filter"
+  },
+  {
+   "name": "Talanta",
+   "issn": "0039-9140",
+   "mode": "filter"
+  },
+  {
+   "name": "Food Chemistry",
+   "issn": "0308-8146",
+   "mode": "filter"
+  },
+  {
+   "name": "Metabolites",
+   "issn": "2218-1989",
+   "mode": "filter"
+  },
+  {
+   "name": "Analytica Chimica Acta",
+   "issn": "0003-2670",
+   "mode": "filter"
+  },
+  {
+   "name": "Analytical and Bioanalytical Chemistry",
+   "issn": "1618-2642",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature",
+   "issn": "0028-0836",
+   "mode": "filter"
+  },
+  {
+   "name": "Science",
+   "issn": "0036-8075",
+   "mode": "filter"
+  },
+  {
+   "name": "Cell",
+   "issn": "0092-8674",
+   "mode": "filter"
+  },
+  {
+   "name": "Proceedings of the National Academy of Sciences",
+   "issn": "0027-8424",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature Methods",
+   "issn": "1548-7091",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature Biotechnology",
+   "issn": "1087-0156",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature Chemistry",
+   "issn": "1755-4349",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature Plants",
+   "issn": "2055-0278",
+   "mode": "filter"
+  },
+  {
+   "name": "Nature Communications",
+   "issn": "2041-1723",
+   "mode": "filter"
+  },
+  {
+   "name": "Science Advances",
+   "issn": "2375-2548",
+   "mode": "filter"
+  },
+  {
+   "name": "Advanced Science",
+   "issn": "2198-3844",
+   "mode": "filter"
+  },
+  {
+   "name": "Angewandte Chemie International Edition",
+   "issn": "1433-7851",
+   "mode": "filter"
+  },
+  {
+   "name": "Journal of the American Society for Mass Spectrometry",
+   "issn": "1044-0305",
+   "mode": "full"
+  },
+  {
+   "name": "Journal of Mass Spectrometry",
+   "issn": "1076-5174",
+   "mode": "full"
+  },
+  {
+   "name": "Rapid Communications in Mass Spectrometry",
+   "issn": "0951-4198",
+   "mode": "full"
+  },
+  {
+   "name": "Mass Spectrometry Reviews",
+   "issn": "0277-7037",
+   "mode": "full"
+  },
+  {
+   "name": "International Journal of Mass Spectrometry",
+   "issn": "1387-3806",
+   "mode": "full"
+  },
+  {
+   "name": "TrAC Trends in Analytical Chemistry",
+   "issn": "0165-9936",
+   "mode": "full"
+  },
+  {
+   "name": "Phytochemistry",
+   "issn": "0031-9422",
+   "mode": "full"
+  },
+  {
+   "name": "Phytochemical Analysis",
+   "issn": "0958-0344",
+   "mode": "full"
+  },
+  {
+   "name": "Journal of Natural Products",
+   "issn": "0163-3864",
+   "mode": "full"
+  },
+  {
+   "name": "Natural Product Reports",
+   "issn": "0265-0568",
+   "mode": "full"
+  },
+  {
+   "name": "Trends in Plant Science",
+   "issn": "1360-1385",
+   "mode": "full"
+  },
+  {
+   "name": "Horticulture Research",
+   "issn": "2052-7276",
+   "mode": "full"
+  },
+  {
+   "name": "Food Chemistry: X",
+   "issn": "2590-1575",
+   "mode": "full"
+  }
+ ]
+}

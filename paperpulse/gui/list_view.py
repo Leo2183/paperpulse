@@ -77,8 +77,13 @@ class PaperListView(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 全列 Interactive:可自由拖拽;标题列给初始宽与下限(修复拉伸 bug,
+        # Stretch 模式不可拖且被动伸缩)
+        for col, w in enumerate([95, 460, 170, 90, 130, 70]):
+            self.table.setColumnWidth(col, w)
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+            QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setMinimumSectionSize(40)
         self.table.setSortingEnabled(True)
         self.table.currentCellChanged.connect(self._show_detail)
         self.table.setContextMenuPolicy(

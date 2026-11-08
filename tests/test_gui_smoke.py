@@ -549,3 +549,15 @@ def test_fetch_models_preserves_current_model(win, monkeypatch):
     # 库里仍是原模型;下拉文本保留原值
     assert st.load_settings(win.conn)["llm_model"] == "glm-4.7"
     assert win.queries_view.llm_model.currentText() == "glm-4.7"
+
+
+def test_columns_freely_resizable(win):
+    """列横向拉伸:所有列必须 Interactive(可拖),不得有 Stretch 锁死列。"""
+    from PySide6.QtWidgets import QHeaderView
+
+    h = win.list_view.table.horizontalHeader()
+    modes = [h.sectionResizeMode(i) for i in range(h.count())]
+    assert QHeaderView.ResizeMode.Stretch not in modes
+    assert all(m == QHeaderView.ResizeMode.Interactive for m in modes)
+    # 标题列有合理初始宽与下限,不会被拖没
+    assert win.list_view.table.columnWidth(1) >= 300
