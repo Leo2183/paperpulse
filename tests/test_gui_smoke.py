@@ -612,3 +612,42 @@ def test_custom_digest_prompt_ui_and_apply(win, monkeypatch):
     row = win.conn.execute(
         "SELECT llm_digest FROM papers WHERE id='10.20/a'").fetchone()
     assert row["llm_digest"] == "方法学很新。"
+
+
+def test_reload_preserves_selection_by_id(win):
+    """生成导读/标记后 reload:选中条目必须仍是同一篇(不跳行)。"""
+    from paperpulse import store as st
+
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.21/keep", doi="10.21/keep", pmcid=None, title="Keep me",
+        authors=None, journal="J", pub_date="2026-11-05", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest=None,
+        first_seen="2026-11-08T09:00:00", updated_at=None))
+    lv = win.list_view
+    lv.reload()
+    lv.table.sortItems(1)  # 用户点过表头排序(重排后 reload 才会跳行)
+    i = next(i for i, r in enumerate(lv._rows) if r["id"] == "10.21/keep")
+    for row in range(lv.table.rowCount()):
+        from PySide6.QtCore import Qt as _Qt
+        if lv.table.item(row, 0).data(_Qt.ItemDataRole.UserRole) == "10.21/keep":
+            lv.table.setCurrentCell(row, 0)
+            break
+    # 模拟生成导读后的路径:改数据 + reload + show_detail
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.21/keep", doi="10.21/keep", pmcid=None, title="Keep me",
+        authors=None, journal="J", pub_date="2026-11-05", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest="新导读",
+        first_seen="2026-11-08T09:00:00", updated_at=None))
+    # 生成导读完成路径:数据变化 + reload;选中必须仍是同一篇且详情同步
+    lv.reload()
+    from PySide6.QtCore import Qt
+    row = lv.table.currentRow()
+    assert row >= 0, "reload 后丢失选中"
+    pid = lv.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+    assert pid == "10.21/keep", "reload 后选中跳到了别的论文"
+    # 详情面板也应是同一篇
+    assert "Keep me" in lv.detail.toPlainText()

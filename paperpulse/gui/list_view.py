@@ -161,6 +161,10 @@ class PaperListView(QWidget):
         self.filter_hint.setText(f"筛选中({n} 项)" if n else "全部")
 
     def reload(self) -> None:
+        prev_id = None
+        cur = self._current_row()
+        if cur:
+            prev_id = cur["id"]  # reload 后恢复选中,防跳行(导读/标记场景)
         self.table.setSortingEnabled(False)
         sql, params = self._query()
         rows = [dict(r) for r in self.conn.execute(sql, params).fetchall()]
@@ -185,6 +189,15 @@ class PaperListView(QWidget):
                 self.table.setItem(i, col, item)
         self.table.setRowCount(len(rows))
         self.table.setSortingEnabled(True)
+        if prev_id is not None:
+            self.table.blockSignals(True)
+            for row in range(self.table.rowCount()):
+                item = self.table.item(row, 0)
+                if item and item.data(Qt.ItemDataRole.UserRole) == prev_id:
+                    self.table.setCurrentCell(row, 0)
+                    break
+            self.table.blockSignals(False)
+            self._show_detail()
 
     def _row_by_id(self, pid: str) -> dict | None:
         for r in self._rows:
