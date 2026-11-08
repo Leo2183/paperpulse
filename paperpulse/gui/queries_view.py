@@ -562,6 +562,15 @@ class QueriesView(QWidget):
         self.llm_model = QComboBox()
         self.llm_model.setEditable(True)
         self.llm_model.setCurrentText(s.get("llm_model", ""))
+        self.llm_prompt = QTextEdit()
+        self.llm_prompt.setPlaceholderText(
+            "自定义总结重点(留空用默认:""你是科研文献导读助手。用一句中文(60字内)"
+            "概括这篇论文做了什么、关键发现是什么。只输出这一句话。"")")
+        self.llm_prompt.setPlainText(s.get("llm_prompt", ""))
+        self.llm_prompt.setFixedHeight(72)
+        self.llm_prompt.textChanged.connect(
+            lambda: store.save_setting(
+                self.conn, "llm_prompt", self.llm_prompt.toPlainText()))
         fetch_models = QPushButton("获取模型列表(需已填 key)")
         fetch_models.clicked.connect(self._fetch_models)
         test = QPushButton("测试连接")
@@ -594,6 +603,7 @@ class QueriesView(QWidget):
         form.addRow("LLM base_url", self.llm_url)
         form.addRow("LLM api_key", self.llm_key)
         form.addRow("LLM model", self.llm_model)
+        form.addRow("总结重点(自定义提示词)", self.llm_prompt)
         form.addRow("", fetch_models)
         form.addRow("", test)
         self._sync_provider_from_settings()

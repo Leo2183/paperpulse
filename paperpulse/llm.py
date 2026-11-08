@@ -155,8 +155,9 @@ def digest(paper: dict, cfg: dict) -> str:
     content = (
         f"标题: {paper['title']}\n摘要: {paper['abstract'][:3000]}"
     )
+    system = cfg.get("llm_prompt") or SYSTEM_PROMPT  # 自定义总结重点
     return _chat(cfg, [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": content},
     ])
 

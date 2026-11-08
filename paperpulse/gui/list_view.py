@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QMessageBox
 
-from .. import store
+from .. import llm, store
 
 COLUMNS = ["日期", "标题", "期刊", "来源", "标签", "旗标"]
 
@@ -98,9 +98,12 @@ class PaperListView(QWidget):
         self.btn_copy = QPushButton("复制 DOI")
         self.btn_copy.clicked.connect(self._copy_doi)
         self.btn_digest = QPushButton("生成导读")
+        self.btn_digest_test = QPushButton("测试总结效果(当前提示词)")
         self.btn_digest.clicked.connect(self._gen_digest)
+        self.btn_digest_test.clicked.connect(self._test_digest_effect)
         detail_bar = QHBoxLayout()
-        for b in (self.btn_open, self.btn_copy, self.btn_digest):
+        for b in (self.btn_open, self.btn_copy, self.btn_digest,
+                  self.btn_digest_test):
             detail_bar.addWidget(b)
         right = QVBoxLayout()
         right.addWidget(QLabel("详情"))
@@ -272,6 +275,66 @@ class PaperListView(QWidget):
             from PySide6.QtWidgets import QApplication
 
             QApplication.clipboard().setText(r["doi"])
+
+    def _test_digest_effect(self) -> None:
+        """用当前自定义提示词对选中论文即时试总结;满意可一键应用。"""
+        r = self._current_row()
+        if not r:
+            return
+        settings = store.load_settings(self.conn)
+        if not (settings.get("llm_base_url") and settings.get("llm_model")):
+            QMessageBox.warning(
+                self, "LLM 未配置",
+                "请先在「检索式配置 → 源与 LLM」填写供应商与模型。")
+            return
+        from .. import llm as llm_mod
+
+        try:
+            key = llm_mod.dpapi_decrypt(settings["llm_api_key"])                 if settings.get("llm_api_key") else ""
+        except OSError:
+            key = ""
+        cfg = dict(llm_base_url=settings["llm_base_url"],
+                   llm_model=settings["llm_model"], llm_api_key=key,
+                   llm_prompt=settings.get("llm_prompt", ""))
+        pid = r["id"]
+        self.btn_digest_test.setEnabled(False)
+        self.btn_digest_test.setText("总结中…")
+
+        def job():
+            conn2 = store.connect()
+            store.init_db(conn2)
+            try:
+                row = conn2.execute(
+                    "SELECT title, abstract, llm_digest FROM papers"
+                    " WHERE id=?", (pid,)).fetchone()
+                if not row or not row["abstract"]:
+                    return ValueError("该论文无摘要,无法总结")
+                return llm_mod.digest(dict(row), cfg)
+            finally:
+                conn2.close()
+
+        def done(res):
+            self.btn_digest_test.setEnabled(True)
+            self.btn_digest_test.setText("测试总结效果(当前提示词)")
+            if isinstance(res, Exception):
+                QMessageBox.warning(self, "测试失败", str(res)[:300])
+                return
+            box = QMessageBox(self)
+            box.setWindowTitle("总结效果预览")
+            box.setText(f"{res}")
+            box.setInformativeText("应用到该篇(写入导读缓存)?")
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Apply
+                | QMessageBox.StandardButton.Discard)
+            if box.exec() == QMessageBox.StandardButton.Apply:
+                self._apply_digest(pid, res)
+
+    def _apply_digest(self, pid: str, text: str) -> None:
+        self.conn.execute(
+            "UPDATE papers SET llm_digest=? WHERE id=?", (text, pid))
+        self.conn.commit()
+        self.reload()
+        self._show_detail()
 
     def _gen_digest(self) -> None:
         r = self._current_row()

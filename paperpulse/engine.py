@@ -239,7 +239,8 @@ def _run_llm_digest(conn, settings: dict, started: str) -> None:
         except OSError:
             log.warning("llm_api_key decrypt failed; digest proceeds without auth")
     cfg = dict(llm_base_url=settings["llm_base_url"],
-               llm_model=settings["llm_model"], llm_api_key=key)
+               llm_model=settings["llm_model"], llm_api_key=key,
+               llm_prompt=settings.get("llm_prompt", ""))  # 自定义总结重点
     papers = [dict(r) for r in conn.execute(
         "SELECT id, title, abstract, llm_digest FROM papers"
         " WHERE status='unread' AND llm_digest IS NULL AND abstract IS NOT NULL"

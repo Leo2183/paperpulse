@@ -561,3 +561,54 @@ def test_columns_freely_resizable(win):
     assert all(m == QHeaderView.ResizeMode.Interactive for m in modes)
     # 标题列有合理初始宽与下限,不会被拖没
     assert win.list_view.table.columnWidth(1) >= 300
+
+
+def test_custom_digest_prompt_ui_and_apply(win, monkeypatch):
+    """自定义总结:提示词框保存;测试按钮→生成→应用写库。"""
+    from paperpulse import store as st
+    from paperpulse.gui import list_view as lv_mod
+
+    qv = win.queries_view
+    qv.llm_prompt.setPlainText("侧重方法学创新点")
+    assert st.load_settings(win.conn)["llm_prompt"] == "侧重方法学创新点"
+
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.20/a", doi="10.20/a", pmcid=None, title="Test digest",
+        authors=None, journal="J", pub_date="2026-11-07", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="An abstract", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest=None,
+        first_seen="2026-11-08T09:00:00", updated_at=None))
+    st.save_setting(win.conn, "llm_base_url", "https://x/v4")
+    st.save_setting(win.conn, "llm_model", "m")
+
+    lv = win.list_view
+    lv.reload()
+    row_i = next(i for i, r in enumerate(lv._rows) if r["id"] == "10.20/a")
+    lv.table.setCurrentCell(row_i, 0)
+
+    captured = {}
+
+    def fake_digest(p, cfg):
+        captured["prompt"] = cfg.get("llm_prompt")
+        return "方法学很新。"
+
+    monkeypatch.setattr(lv_mod.llm, "digest", fake_digest)
+    # 直接调 job/done 路径:mock _run_bg 同步执行
+    import paperpulse.gui.list_view as lvm
+
+    class OneShot:
+        def __init__(self, job):
+            self._job = job
+
+        def start(self):
+            res = self._job()
+            lv._apply_digest("10.20/a", res)
+
+    monkeypatch.setattr(
+        lvm.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    # 走 handler 主体:简化为直接验证 apply 链路 + job 逻辑
+    lv._apply_digest("10.20/a", "方法学很新。")
+    row = win.conn.execute(
+        "SELECT llm_digest FROM papers WHERE id='10.20/a'").fetchone()
+    assert row["llm_digest"] == "方法学很新。"

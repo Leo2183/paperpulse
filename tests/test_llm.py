@@ -184,3 +184,23 @@ def test_providers_include_codingplan_and_common_compat():
     assert "volces.com" in PROVIDERS["火山方舟 Ark"]["base_url"]
     assert "api.x.ai" in PROVIDERS["xAI Grok"]["base_url"]
     assert "openai" in PROVIDERS["Google Gemini (兼容)"]["base_url"]
+
+
+def test_digest_custom_prompt_replaces_default(monkeypatch):
+    """自定义总结重点:非空则替换默认 system;留空回退默认。"""
+    from paperpulse import llm as m
+
+    captured = {}
+
+    def fake_chat(cfg, messages, retries=1):
+        captured["system"] = messages[0]["content"]
+        return "ok"
+
+    monkeypatch.setattr(m, "_chat", fake_chat)
+    p = dict(title="T", abstract="A", llm_digest=None)
+    m.digest(p, dict(llm_base_url="u", llm_model="m", llm_api_key="k",
+                     llm_prompt="侧重方法学,两句话"))
+    assert captured["system"] == "侧重方法学,两句话"
+    m.digest(p, dict(llm_base_url="u", llm_model="m", llm_api_key="k",
+                     llm_prompt=""))
+    assert captured["system"] == m.SYSTEM_PROMPT
