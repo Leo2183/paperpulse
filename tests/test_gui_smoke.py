@@ -570,6 +570,7 @@ def test_custom_digest_prompt_ui_and_apply(win, monkeypatch):
 
     qv = win.queries_view
     qv.llm_prompt.setPlainText("侧重方法学创新点")
+    qv._save_prompt()  # 防抖落库槽直调(P3-6:textChanged 不再逐字符写库)
     assert st.load_settings(win.conn)["llm_prompt"] == "侧重方法学创新点"
 
     st.upsert_paper(win.conn, st.Paper(
@@ -813,3 +814,178 @@ def test_regenerate_keeps_old_digest_on_failure(win, monkeypatch):
     row2 = win.conn.execute(
         "SELECT llm_digest FROM papers WHERE id='10.23/a'").fetchone()
     assert row2["llm_digest"] == "旧导读", "失败后旧导读被清空(P1-3 回归)"
+
+
+def _mk_paper(pid, **kw):
+    from paperpulse import store as st
+
+    base = dict(
+        id=pid, doi=pid, pmcid=None, title=f"Title {pid}", authors=None,
+        journal="J", pub_date="2026-11-09", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs text", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest=None,
+        first_seen="2026-11-10T09:00:00", updated_at=None,
+    )
+    base.update(kw)
+    return st.Paper(base)
+
+
+def test_new_badge_and_filter_only_new(win):
+    """「新」徽标:基线之后入库的旗标列标「新」;「仅看新增」过滤生效。"""
+    from PySide6.QtCore import Qt
+
+    from paperpulse import store as st
+
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.30/new", first_seen="2026-11-10T12:00:00"))
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.30/old", first_seen="2026-11-01T08:00:00"))
+    lv = win.list_view
+    lv.new_since = "2026-11-09T00:00:00"
+    lv.reload()
+    for row in range(lv.table.rowCount()):
+        pid = lv.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        flag = lv.table.item(row, 5).text()
+        if pid == "10.30/new":
+            assert "新" in flag
+        if pid == "10.30/old":
+            assert "新" not in flag
+    lv.c_new.setChecked(True)
+    lv.reload()
+    ids = {lv.table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+           for r in range(lv.table.rowCount())}
+    assert "10.30/new" in ids and "10.30/old" not in ids
+    lv.c_new.setChecked(False)
+    # 无基线(首次启动)不显示「新」
+    lv.new_since = None
+    lv.reload()
+    for row in range(lv.table.rowCount()):
+        assert "新" not in lv.table.item(row, 5).text()
+
+
+def test_search_scope_title_digest_both(win):
+    """搜索范围下拉:标题 / 导读 / 两者(默认)。"""
+    from paperpulse import store as st
+
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.31/a", title="Quantum dots imaging", llm_digest=None))
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.31/b", title="Unrelated title", llm_digest="quantum dots study"))
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.31/c", title="Neither here", llm_digest=None))
+    lv = win.list_view
+
+    def ids():
+        return {lv.table.item(r, 0).data(
+            __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.ItemDataRole.UserRole)
+            for r in range(lv.table.rowCount())}
+
+    lv.f_title.setText("quantum")
+    lv.reload()  # 默认「两者」
+    got = ids()
+    assert "10.31/a" in got and "10.31/b" in got and "10.31/c" not in got
+    lv.f_search_scope.setCurrentText("标题")
+    got = ids()
+    assert "10.31/a" in got and "10.31/b" not in got
+    lv.f_search_scope.setCurrentText("导读")
+    got = ids()
+    assert "10.31/b" in got and "10.31/a" not in got
+    lv.f_title.setText("")
+    lv.f_search_scope.setCurrentText("两者")
+
+
+def test_batch_regen_includes_cached_digests(win, monkeypatch):
+    """勾选「含已有导读」:已有 digest 的论文也入选且置 None(失败保旧)。"""
+    from datetime import date
+
+    from paperpulse import store as st
+    from paperpulse.gui import scan_view as sv_mod
+
+    st.save_setting(win.conn, "llm_base_url", "https://x/v4")
+    st.save_setting(win.conn, "llm_model", "m")
+    today = date.today().isoformat()
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.32/cached", llm_digest="旧导读", first_seen=today + "T09:00:00"))
+    st.upsert_paper(win.conn, _mk_paper(
+        "10.32/fresh", first_seen=today + "T09:00:00"))
+
+    built = {}
+
+    class _Sig:
+        @staticmethod
+        def connect(fn):
+            pass
+
+    class FakeWorker:
+        progress = _Sig()
+        done = _Sig()
+
+        def __init__(self, *args):
+            built["args"] = args
+
+        @staticmethod
+        def isRunning():
+            return False
+
+        def start(self):
+            built["started"] = True
+
+    monkeypatch.setattr(sv_mod, "DigestWorker", FakeWorker)
+    sv = win.scan_view
+    sv.c_regen.setChecked(True)
+    sv._start_digest()
+    papers = built["args"][0]
+    got = {p["id"]: p["llm_digest"] for p in papers}
+    assert "10.32/cached" in got and "10.32/fresh" in got
+    assert all(v is None for v in got.values()), "重生成必须置 None 让 batch 重调"
+
+    # >30 篇触发确认;点「否」不得启动
+    for i in range(31):
+        st.upsert_paper(win.conn, _mk_paper(
+            f"10.32/bulk{i}", first_seen=today + "T09:00:00"))
+    built.clear()
+    monkeypatch.setattr(
+        sv_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k:
+                     sv_mod.QMessageBox.StandardButton.No))
+    sv._start_digest()
+    assert not built, "确认被拒后不得启动批量重生成"
+    sv.c_regen.setChecked(False)
+
+
+def test_new_journal_rollback_removes_orphan_papers(qapp, tmp_path, monkeypatch):
+    """P3-12:加刊回填失败回滚时,本次写入的论文一并删除(不留孤儿)。"""
+    from datetime import date
+
+    from paperpulse import config, prepare, store as st
+    from paperpulse.gui.queries_view import NewJournalWorker
+    from paperpulse.sources import crossref as cf_mod
+    from paperpulse.sources import journals as jmod
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.setattr(cf_mod, "count_recent", lambda *a, **k: 10)
+
+    def fake_backfill(conn, jid, **kw):
+        # 回填中途失败:先成功入库一篇该刊论文,再抛异常
+        started = date.today().isoformat() + "T00:00:00"
+        p = dict(_mk_paper("10.99/x", source="crossref"))
+        prepare.prepare_paper(p, group_names=[], g3_phrases=[],
+                              started=started, subscription="X Journal")
+        st.upsert_paper(conn, p)
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(jmod, "backfill_journal", fake_backfill)
+    stages, dones = [], []
+    w = NewJournalWorker("X Journal", "0000-0000")
+    w.stage.connect(stages.append)
+    w.done.connect(dones.append)
+    w.run()
+    assert dones and any("失败" in s for s in stages)
+    conn = st.connect()
+    st.init_db(conn)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM journal_subscriptions").fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM papers WHERE subscription='X Journal'"
+    ).fetchone()[0] == 0, "回滚后不得残留孤儿论文(P3-12)"

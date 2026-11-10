@@ -10,7 +10,7 @@ from typing import TypedDict
 
 from . import config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULT_SETTINGS = {
     "schema_version": "1",
@@ -155,6 +155,8 @@ def _migrate(conn, current: int) -> None:
     """按 schema_version 顺序执行迁移(spec §6)。"""
     if current < 2:
         _migrate_v2(conn)
+    if current < 3:
+        _migrate_v3(conn)
 
 
 def _migrate_v2(conn) -> None:
@@ -179,6 +181,25 @@ def _migrate_v2(conn) -> None:
                 conn.execute(
                     "UPDATE papers SET matched_groups=? WHERE id=?",
                     (json.dumps(mapped, ensure_ascii=False), row["id"]))
+    conn.commit()
+
+
+def _migrate_v3(conn) -> None:
+    """v3(第11轮 P2-3):内置/preset 订阅的模式修正同步到存量库。
+
+    seed_journals 对非空库是空操作,内置清单的 mode 修正(如 Food
+    Chemistry: X full→filter)永远到不了已有库。这里按 ISSN 一次性同步;
+    用户手动改过的模式也会被这一次覆盖——改预设主题包的 mode 即为权威。
+    延迟 import:journals → queries → 本模块,运行时已加载完毕无环。
+    """
+    from .sources.journals import get_default_journals
+
+    for r in get_default_journals():
+        conn.execute(
+            "UPDATE journal_subscriptions SET mode=?"
+            " WHERE issn=? AND mode!=?",
+            (r["mode"], r["issn"], r["mode"]),
+        )
     conn.commit()
 
 
@@ -298,8 +319,23 @@ def load_settings(conn) -> dict:
 
 def save_setting(conn, key: str, value: str) -> None:
     conn.execute(
-        "INSERT INTO settings(key, value) VALUES (?, ?)"
+        "INSERT INTO settings(key, value) VALUES (?, ?) "
         " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (key, value),
     )
     conn.commit()
+
+
+def advance_papers_seen(conn) -> str | None:
+    """「新」徽标基线:返回上次的 papers_seen_at 旧值,并写入当前时刻。
+
+    GUI 每次启动调用一次——本次会话以旧值为界判定"新增",
+    会话内后台扫描新入库的论文持续标「新」,下次打开重新起算。
+    首次(无旧值)返回 None:没有参照,不显示「新」。
+    """
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key='papers_seen_at'"
+    ).fetchone()
+    prev = row["value"] if row else None
+    save_setting(conn, "papers_seen_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+    return prev

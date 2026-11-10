@@ -5,7 +5,7 @@
 
 import json
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPushButton, QSpinBox,
@@ -15,24 +15,7 @@ from PySide6.QtWidgets import (
 
 from .. import config, llm, queries, store
 from ..sources import crossref, journals
-
-
-class FnWorker(QThread):
-    """通用后台函数执行;done 后自毁,持有者经 _run_bg 防重入(P1-1/P2-8)。"""
-
-    done = Signal(object)
-
-    def __init__(self, fn):
-        super().__init__()
-        self._fn = fn
-        # 不接 deleteLater:自毁会让 _bg_workers 里的包装器失效,
-        # 第二次点击在守卫处抛 RuntimeError(P0);已结束对象最多每 key 一个
-
-    def run(self):
-        try:
-            self.done.emit(self._fn())
-        except Exception as e:  # noqa: BLE001
-            self.done.emit(e)
+from .workers import FnWorker  # noqa: F401  (模块级名保留:测试 monkeypatch 挂这里)
 
 
 class TestGroupWorker(QThread):
@@ -96,10 +79,10 @@ class NewJournalWorker(QThread):
         self.title, self.issn = title, issn
 
     def run(self):
-        from .. import config, store as store_mod
+        from datetime import date as _date
 
-        conn = store_mod.connect()
-        store_mod.init_db(conn)
+        conn = store.connect()
+        store.init_db(conn)
         try:
             n = self._run_inner(conn)
         except Exception as e:  # P2-4:失败必须收尾,界面不得永久卡住
@@ -110,8 +93,20 @@ class NewJournalWorker(QThread):
             jid = getattr(self, "_inserted_jid", None)
             if jid is not None:  # P2-3:删半成品订阅,重复添加可重试
                 try:
+                    row = conn.execute(
+                        "SELECT name FROM journal_subscriptions WHERE id=?",
+                        (jid,)).fetchone()
                     conn.execute(
                         "DELETE FROM journal_subscriptions WHERE id=?", (jid,))
+                    if row:
+                        # P3-12:同时清掉本次回填写入的论文,不留孤儿
+                        # (subscription=刊名 但订阅表查不到该刊)。
+                        # 时间戳与 backfill_journal 一致;该订阅行刚建,
+                        # 当天正常扫描不可能产出同订阅论文,删除安全。
+                        started = _date.today().isoformat() + "T00:00:00"
+                        conn.execute(
+                            "DELETE FROM papers WHERE subscription=?"
+                            " AND first_seen=?", (row["name"], started))
                     conn.commit()
                 except Exception:
                     pass
@@ -366,15 +361,16 @@ class QueriesView(QWidget):
             self.j_status.setText(
                 f"{len(res)} 个匹配(精确名优先)" if res else "未找到该刊")
 
-        self._run_bg("resolve", job, done)
+        if not self._run_bg("resolve", job, done):  # P3-8:忙时不静默
+            self.j_status.setText("上一请求仍在进行,请稍候。")
 
     def _add_journal(self) -> None:
         idx = self.j_matches.currentIndex()
         if idx < 0:
-            self._resolve_journal()
-            idx = self.j_matches.currentIndex()
-            if idx < 0:
-                return
+            # 原"自动回退到解析"是异步的,紧接着读 currentIndex 必为 -1,
+            # 等于没有回退(第11轮 P3-11);直接给用户明确指引
+            self.j_status.setText("请先点「解析」,从下拉中选择期刊后再添加。")
+            return
         title, issn = self.j_matches.itemData(idx)
         if self._worker and self._worker.isRunning():  # 防重入
             self.j_status.setText("上一轮添加/回填仍在进行,请稍候。")
@@ -565,14 +561,19 @@ class QueriesView(QWidget):
         self.llm_model.setCurrentText(s.get("llm_model", ""))
         self.llm_prompt = QTextEdit()
         self.llm_prompt.setPlaceholderText(
-            "自定义总结重点(留空用默认:""你是科研文献导读助手。用一句中文(60字内)"
-            "概括这篇论文做了什么、关键发现是什么。只输出这一句话。"")")
+            "自定义总结重点(留空用默认:「你是科研文献导读助手。用一句中文"
+            "(60字内)概括这篇论文做了什么、关键发现是什么。只输出这一句话。」)"
+        )
         self.llm_prompt.setPlainText(s.get("llm_prompt", ""))
         self.llm_prompt.setFixedHeight(72)
         self.llm_status = QLabel("")
-        self.llm_prompt.textChanged.connect(
-            lambda: store.save_setting(
-                self.conn, "llm_prompt", self.llm_prompt.toPlainText()))
+        # P3-6:QTextEdit 无 editingFinished,textChanged 逐字符写库会与
+        # 扫描并发争锁;600ms 单发防抖,停笔才落库(_save_prompt 供测试直调)
+        self._prompt_timer = QTimer(self)
+        self._prompt_timer.setSingleShot(True)
+        self._prompt_timer.setInterval(600)
+        self._prompt_timer.timeout.connect(self._save_prompt)
+        self.llm_prompt.textChanged.connect(self._prompt_timer.start)
         fetch_models = QPushButton("获取模型列表(需已填 key)")
         fetch_models.clicked.connect(self._fetch_models)
         test = QPushButton("测试连接")
@@ -614,6 +615,10 @@ class QueriesView(QWidget):
         page.setLayout(form)
         return page
 
+    def _save_prompt(self) -> None:
+        """提示词落库(防抖超时槽;测试里也直接调它断言持久化)。"""
+        store.save_setting(self.conn, "llm_prompt", self.llm_prompt.toPlainText())
+
     def _test_llm(self) -> None:
         cfg = self._llm_cfg()
         if not cfg:
@@ -634,7 +639,10 @@ class QueriesView(QWidget):
 
         if btn:
             btn.setEnabled(False)
-        self._run_bg("llm_test", job, done)
+        if not self._run_bg("llm_test", job, done):  # P3-8:忙时不静默
+            if btn:
+                btn.setEnabled(True)
+            self.llm_status.setText("上一请求仍在进行,请稍候。")
 
     def _sync_provider_from_settings(self) -> None:
         """按已存 base_url 回显供应商;查不到选「自定义」(P2-1)。"""
@@ -694,7 +702,8 @@ class QueriesView(QWidget):
                     f"当前模型 {cur} 不在返回列表中,已保留;可从下拉改选。")
             self.llm_model.blockSignals(False)
 
-        self._run_bg("models", job, done)
+        if not self._run_bg("models", job, done):  # P3-8:忙时不静默
+            self.llm_status.setText("上一请求仍在进行,请稍候。")
 
     def _llm_cfg(self, require_model: bool = True) -> dict | None:
         s = store.load_settings(self.conn)

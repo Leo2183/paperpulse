@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QMessageBox, QProgressBar,
-    QPushButton, QSpinBox, QTextEdit, QVBoxLayout, QWidget,
+    QCheckBox, QHBoxLayout, QLabel, QListWidget, QMessageBox,
+    QProgressBar, QPushButton, QSpinBox, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import config, engine, llm, report, store, task
@@ -110,6 +110,7 @@ class ScanView(QWidget):
         self.spin_days = QSpinBox()
         self.spin_days.setRange(1, 30)
         self.spin_days.setValue(3)
+        self.c_regen = QCheckBox("含已有导读(按当前提示词重生成)")
         self.btn_digest = QPushButton("批量生成中文导读")
         self.btn_digest.clicked.connect(self._start_digest)
         self.digest_status = QLabel("")
@@ -124,6 +125,7 @@ class ScanView(QWidget):
         mid.addWidget(QLabel("批量导读:最新"))
         mid.addWidget(self.spin_days)
         mid.addWidget(QLabel("天未读"))
+        mid.addWidget(self.c_regen)
         mid.addWidget(self.btn_digest)
         mid.addWidget(self.digest_status, stretch=1)
         task_bar = QHBoxLayout()
@@ -188,14 +190,28 @@ class ScanView(QWidget):
             return
         n_days = self.spin_days.value()
         since = (date.today() - timedelta(days=n_days)).isoformat()
+        regen = self.c_regen.isChecked()  # 含已有导读:按当前提示词重生成
+        where = ["status='unread'", "abstract IS NOT NULL"]
+        if not regen:
+            where.append("llm_digest IS NULL")
         papers = [dict(r) for r in self.conn.execute(
             "SELECT id, title, abstract, llm_digest FROM papers"
-            " WHERE status='unread' AND llm_digest IS NULL"
-            " AND abstract IS NOT NULL AND substr(first_seen,1,10)>=?",
+            " WHERE " + " AND ".join(where)
+            + " AND substr(first_seen,1,10)>=?",
             (since,))]
         if not papers:
             self.digest_status.setText("没有符合条件的待导读论文。")
             return
+        if regen:
+            if len(papers) > 30:  # 大批量重生成防误触
+                ans = QMessageBox.question(
+                    self, "批量重生成确认",
+                    f"将用当前提示词重新生成 {len(papers)} 篇导读"
+                    "(含已有导读;失败的保留旧值),继续?")
+                if ans != QMessageBox.StandardButton.Yes:
+                    return
+            # 置 None 让 batch_digest 重调;失败不写库,旧导读保留(P1-3 语义)
+            papers = [dict(r, llm_digest=None) for r in papers]
         self.btn_digest.setEnabled(False)
         self._digest_worker = DigestWorker(papers, cfg)
         self._digest_worker.progress.connect(

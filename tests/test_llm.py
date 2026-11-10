@@ -171,8 +171,6 @@ def test_list_models_error_raises_source_error(monkeypatch):
 
     monkeypatch.setattr(m.requests, "get",
                         lambda *a, **kw: Resp())
-    import pytest
-
     with pytest.raises(SourceError):
         m.list_models(dict(llm_base_url="https://x/v4", llm_api_key="bad"))
 
@@ -209,8 +207,6 @@ def test_digest_custom_prompt_replaces_default(monkeypatch):
 
 def test_import_subscriptions_shape_guard():
     """P2-4:订阅导入遇异常结构必须报 ValueError 而非 AttributeError。"""
-    import pytest
-
     from paperpulse.sources import journals as j
 
     with pytest.raises(ValueError):
@@ -236,9 +232,6 @@ def test_llm_cfg_carries_prompt(tmp_path, monkeypatch, qapp):
     qv = QueriesView(conn)
     cfg = qv._llm_cfg()
     assert cfg["llm_prompt"] == "侧重方法"
-
-
-import pytest
 
 
 @pytest.fixture(scope="module")

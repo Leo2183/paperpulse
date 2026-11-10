@@ -13,16 +13,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QMessageBox
 
 from .. import llm, store
-from .queries_view import FnWorker
+from .workers import FnWorker  # noqa: F401  (模块级名保留:测试 monkeypatch 挂这里)
 
 COLUMNS = ["日期", "标题", "期刊", "来源", "标签", "旗标"]
 
 
 class PaperListView(QWidget):
-    def __init__(self, conn, refresh_parent=None):
+    def __init__(self, conn, refresh_parent=None, new_since: str | None = None):
         super().__init__()
         self.conn = conn
         self.refresh_parent = refresh_parent
+        self.new_since = new_since  # 「新」徽标基线(上次 GUI 启动时刻)
         self._build()
         self.reload()
 
@@ -49,16 +50,21 @@ class PaperListView(QWidget):
         self.filter_hint = QLabel("")
         self.c_starred = QCheckBox("仅星标")
         self.c_to_read = QCheckBox("仅待精读")
+        self.c_new = QCheckBox("仅看新增")
         self.f_title = QLineEdit()
-        self.f_title.setPlaceholderText("标题搜索…")
+        self.f_title.setPlaceholderText("搜索…")
+        self.f_search_scope = QComboBox()
+        self.f_search_scope.addItems(["两者", "标题", "导读"])
         btn = QPushButton("刷新")
         btn.clicked.connect(self.reload)
         for w, changer in (
             (self.f_source, self.f_source.currentIndexChanged),
             (self.f_status, self.f_status.currentIndexChanged),
             (self.f_tag, self.f_tag.currentIndexChanged),
+            (self.f_search_scope, self.f_search_scope.currentIndexChanged),
             (self.c_starred, self.c_starred.stateChanged),
             (self.c_to_read, self.c_to_read.stateChanged),
+            (self.c_new, self.c_new.stateChanged),
         ):
             changer.connect(self.reload)
         self.f_title.textChanged.connect(self.reload)
@@ -67,7 +73,8 @@ class PaperListView(QWidget):
         for w in (self.c_all_dates, QLabel("从"), self.f_from, QLabel("到"),
                   self.f_to,
                   self.f_source, self.f_status, self.f_tag,
-                  self.c_starred, self.c_to_read, self.f_title, btn,
+                  self.c_starred, self.c_to_read, self.c_new,
+                  self.f_title, self.f_search_scope, btn,
                   self.filter_hint):
             bar.addWidget(w)
 
@@ -139,9 +146,22 @@ class PaperListView(QWidget):
             where.append("starred = 1")
         if self.c_to_read.isChecked():
             where.append("to_read = 1")
-        if self.f_title.text().strip():
-            where.append("title LIKE ?")
-            params.append(f"%{self.f_title.text().strip()}%")
+        if self.c_new.isChecked() and self.new_since:
+            where.append("first_seen > ?")
+            params.append(self.new_since)
+        kw = self.f_title.text().strip()
+        if kw:
+            scope = self.f_search_scope.currentText()
+            like = f"%{kw}%"
+            if scope == "标题":
+                where.append("title LIKE ?")
+                params.append(like)
+            elif scope == "导读":  # 搜索导读关键词
+                where.append("llm_digest LIKE ?")
+                params.append(like)
+            else:  # 两者(默认)
+                where.append("(title LIKE ? OR llm_digest LIKE ?)")
+                params.extend([like, like])
         if not self.c_all_dates.isChecked():
             d_from = self.f_from.date().toString("yyyy-MM-dd")
             d_to = self.f_to.date().toString("yyyy-MM-dd")
@@ -173,6 +193,9 @@ class PaperListView(QWidget):
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
             flags = []
+            if (self.new_since and r["first_seen"]
+                    and r["first_seen"] > self.new_since):
+                flags.append("新")  # 上次打开 GUI 后入库(ISO 串比较同格式安全)
             if r["starred"]:
                 flags.append("★")
             if r["to_read"]:

@@ -54,7 +54,7 @@ def test_init_db_idempotent(conn):
 
 def test_settings_defaults(conn):
     s = store.load_settings(conn)
-    assert s["schema_version"] == "2"  # v2:stale 列 + 组 id 迁移
+    assert s["schema_version"] == "3"  # v3:订阅模式同步迁移
     assert s["backfill_days"] == "30"
     assert s["src_europepmc_enabled"] == "1"
     assert s["src_journals_enabled"] == "1"
@@ -208,10 +208,74 @@ def test_migration_v1_to_v2_group_ids_and_stale(tmp_path, monkeypatch):
     raw.commit()
     raw.close()
     c = store.connect()
-    store.init_db(c)  # 触发 v1→v2 迁移
+    store.init_db(c)  # 触发 v1→v2→v3 迁移
     mg = c.execute("SELECT matched_groups FROM papers WHERE id='10.7/a'").fetchone()[0]
     import json
     assert sorted(json.loads(mg)) == ["1", "3"]
     assert c.execute("SELECT COUNT(*) FROM pragma_table_info('papers')"
                      " WHERE name='stale'").fetchone()[0] == 1
-    assert store.load_settings(c)["schema_version"] == "2"
+    assert store.load_settings(c)["schema_version"] == "3"
+
+
+def test_migration_v3_syncs_builtin_journal_modes(tmp_path, monkeypatch):
+    """v3(第11轮 P2-3):内置清单的 mode 修正按 ISSN 同步存量库。
+
+    Food Chemistry: X 曾被修正为 filter,seed_journals 对非空库是空操作,
+    存量库必须靠本迁移纠正;用户自加刊(不在内置清单)不受影响。
+    """
+    from paperpulse import config
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)  # presets 不存在→内置清单
+    import sqlite3
+
+    db = tmp_path / "data" / "scan.db"
+    db.parent.mkdir()
+    raw = sqlite3.connect(db)
+    raw.executescript("""
+    CREATE TABLE papers (id TEXT PRIMARY KEY, doi TEXT, pmcid TEXT,
+      title TEXT NOT NULL, authors TEXT, journal TEXT, pub_date TEXT,
+      indexed_date TEXT, source TEXT NOT NULL, sources TEXT DEFAULT '[]',
+      subscription TEXT, url TEXT, abstract TEXT, tags TEXT DEFAULT '[]',
+      matched_groups TEXT DEFAULT '[]', status TEXT DEFAULT 'unread',
+      starred INTEGER DEFAULT 0, to_read INTEGER DEFAULT 0,
+      llm_digest TEXT, first_seen TEXT NOT NULL, updated_at TEXT);
+    CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    CREATE TABLE term_groups (id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL, enabled INTEGER DEFAULT 1,
+      terms TEXT NOT NULL, refine TEXT NOT NULL);
+    CREATE TABLE journal_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL, issn TEXT NOT NULL, mode TEXT NOT NULL,
+      route TEXT NOT NULL, enabled INTEGER DEFAULT 1, added_at TEXT);
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+    INSERT INTO settings VALUES ('schema_version','2');
+    INSERT INTO journal_subscriptions (name, issn, mode, route) VALUES
+      ('Food Chemistry: X', '2590-1575', 'full', ''),
+      ('Nature', '0028-0836', 'filter', ''),
+      ('My Custom Journal', '1234-5678', 'full', '');
+    """)
+    raw.commit()
+    raw.close()
+    c = store.connect()
+    store.init_db(c)  # 触发 v2→v3
+    modes = {r["issn"]: r["mode"] for r in c.execute(
+        "SELECT issn, mode FROM journal_subscriptions")}
+    assert modes["2590-1575"] == "filter"  # 内置修正同步
+    assert modes["0028-0836"] == "filter"  # 本就一致,不动
+    assert modes["1234-5678"] == "full"  # 自加刊不在清单,不受影响
+    assert store.load_settings(c)["schema_version"] == "3"
+    store.init_db(c)  # 幂等:已到 v3 不再跑
+    assert modes["2590-1575"] == "filter"
+
+
+def test_advance_papers_seen_roundtrip(tmp_path, monkeypatch):
+    """「新」徽标基线:首次返回 None,此后返回上次值并推进。"""
+    from paperpulse import config
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    c = store.connect()
+    store.init_db(c)
+    assert store.advance_papers_seen(c) is None  # 首次无参照
+    first = store.load_settings(c)["papers_seen_at"]
+    second = store.advance_papers_seen(c)
+    assert second == first and second  # 返回旧值
+    assert store.load_settings(c)["papers_seen_at"] >= second  # 已推进

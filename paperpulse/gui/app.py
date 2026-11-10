@@ -20,6 +20,8 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.conn = store.connect()
         store.init_db(self.conn)
+        # 「新」徽标基线:读上次会话时刻并推进到当前(本次会话内以此判定新增)
+        self.new_since = store.advance_papers_seen(self.conn)
 
         self.nav = QListWidget()
         self.nav.addItems(NAV_LABELS)
@@ -27,12 +29,14 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._switch)
 
         self.stack = QStackedWidget()
-        self.list_view = PaperListView(self.conn, refresh_parent=self.refresh)
+        self.list_view = PaperListView(
+            self.conn, refresh_parent=self.refresh, new_since=self.new_since)
         from .mark_view import MarkView
         from .queries_view import QueriesView
         from .scan_view import ScanView
 
-        self.mark_view = MarkView(self.conn, refresh_parent=self.refresh)
+        self.mark_view = MarkView(
+            self.conn, refresh_parent=self.refresh, new_since=self.new_since)
         self.queries_view = QueriesView(self.conn, parent_window=self)
         self.scan_view = ScanView(
             self.conn, refresh_parent=self.refresh,
