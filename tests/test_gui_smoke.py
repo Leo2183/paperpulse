@@ -716,3 +716,25 @@ def test_digest_test_button_actually_runs(win, monkeypatch):
     assert ran["job"], "job 从未被调度(按钮会永久停在'总结中…')"
     assert lv.btn_digest_test.isEnabled()
     assert lv.btn_digest_test.text() == "测试总结效果(当前提示词)"
+
+
+def test_run_bg_twice_with_real_worker(win):
+    """P0 防回归:真 FnWorker 跑完后再点一次,必须正常新建而非 RuntimeError。"""
+    import time
+
+    qv = win.queries_view
+    assert qv._run_bg("twice", lambda: 1, lambda r: None) is True
+    for _ in range(100):  # 等 worker 结束
+        w = qv._bg_workers.get("twice")
+        if w is None or not w.isRunning():
+            break
+        time.sleep(0.02)
+    from PySide6.QtWidgets import QApplication
+
+    import time as _t
+
+    for _ in range(50):  # 让 finished/deleteLater 真正处理(C++ 对象销毁)
+        QApplication.processEvents()
+        _t.sleep(0.02)
+    # 第二次:修复前在此抛 RuntimeError(C++ object already deleted)
+    assert qv._run_bg("twice", lambda: 2, lambda r: None) is True

@@ -274,7 +274,15 @@ def export_subscriptions(conn) -> dict:
 
 
 def import_subscriptions(conn, data: dict) -> int:
-    """合并导入订阅(按 ISSN 去重);返回新增刊数。"""
+    """合并导入订阅(按 ISSN 去重);返回新增刊数。
+
+    形状守卫(P2-4):顶层非对象 / journals 非数组 → ValueError。
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"订阅文件顶层必须是对象,得到 {type(data).__name__}")
+    rows_in = data.get("journals", [])
+    if not isinstance(rows_in, list):
+        raise ValueError('"journals" 必须是数组')
     existing = {r["issn"] for r in conn.execute(
         "SELECT issn FROM journal_subscriptions")}
     added = 0

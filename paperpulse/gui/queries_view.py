@@ -25,7 +25,8 @@ class FnWorker(QThread):
     def __init__(self, fn):
         super().__init__()
         self._fn = fn
-        self.finished.connect(self.deleteLater)
+        # 不接 deleteLater:自毁会让 _bg_workers 里的包装器失效,
+        # 第二次点击在守卫处抛 RuntimeError(P0);已结束对象最多每 key 一个
 
     def run(self):
         try:
@@ -71,7 +72,7 @@ class AuditWorker(QThread):
         super().__init__()
 
     def run(self):
-        from .. import store as store_mod
+        from .. import config, store as store_mod
 
         conn = store_mod.connect()
         store_mod.init_db(conn)
@@ -95,7 +96,7 @@ class NewJournalWorker(QThread):
         self.title, self.issn = title, issn
 
     def run(self):
-        from .. import store as store_mod
+        from .. import config, store as store_mod
 
         conn = store_mod.connect()
         store_mod.init_db(conn)
@@ -122,7 +123,7 @@ class NewJournalWorker(QThread):
 
     def _run_inner(self, conn) -> int:
         """探测→入库→回填;异常由 run() 统一收尾(P2-4)。"""
-        from .. import store as store_mod
+        from .. import config, store as store_mod
 
         settings = store_mod.load_settings(conn)
         dup = conn.execute(
@@ -493,8 +494,9 @@ class QueriesView(QWidget):
         from PySide6.QtWidgets import QFileDialog
 
         data = journals.export_subscriptions(self.conn)
+        default = config.data_dir() / "subscriptions.json"  # 不落 cwd(防误入库)
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出订阅", "subscriptions.json", "JSON (*.json)")
+            self, "导出订阅", str(default), "JSON (*.json)")
         if not path:
             return
         import json as _json
@@ -568,6 +570,7 @@ class QueriesView(QWidget):
             "概括这篇论文做了什么、关键发现是什么。只输出这一句话。"")")
         self.llm_prompt.setPlainText(s.get("llm_prompt", ""))
         self.llm_prompt.setFixedHeight(72)
+        self.llm_status = QLabel("")
         self.llm_prompt.textChanged.connect(
             lambda: store.save_setting(
                 self.conn, "llm_prompt", self.llm_prompt.toPlainText()))
@@ -604,6 +607,7 @@ class QueriesView(QWidget):
         form.addRow("LLM api_key", self.llm_key)
         form.addRow("LLM model", self.llm_model)
         form.addRow("总结重点(自定义提示词)", self.llm_prompt)
+        form.addRow("", self.llm_status)
         form.addRow("", fetch_models)
         form.addRow("", test)
         self._sync_provider_from_settings()
@@ -664,13 +668,13 @@ class QueriesView(QWidget):
         if not cfg or not cfg.get("llm_base_url"):
             QMessageBox.warning(self, "未配置", "请先选择供应商或填写 base_url。")
             return
-        self.j_status.setText("获取模型列表中…")
+        self.llm_status.setText("获取模型列表中…")
 
         def job():
             return llm.list_models(cfg)
 
         def done(res):
-            self.j_status.setText("")
+            self.llm_status.setText("")
             if isinstance(res, Exception):
                 QMessageBox.warning(
                     self, "获取失败",
@@ -687,7 +691,7 @@ class QueriesView(QWidget):
                 self.llm_model.setCurrentText(cur)
             else:
                 self.llm_model.setCurrentText(cur)  # 保留原值
-                self.j_status.setText(
+                self.llm_status.setText(
                     f"当前模型 {cur} 不在返回列表中,已保留;可从下拉改选。")
             self.llm_model.blockSignals(False)
 
@@ -699,6 +703,7 @@ class QueriesView(QWidget):
             return None
         if require_model and not s.get("llm_model"):
             return None
+        # 自定义提示词随 cfg 下发(P1):批量导读/测试连接共用此构造
         key = ""
         if s.get("llm_api_key"):
             try:
@@ -706,4 +711,5 @@ class QueriesView(QWidget):
             except OSError:
                 key = ""
         return dict(llm_base_url=s["llm_base_url"],
-                    llm_model=s["llm_model"], llm_api_key=key)
+                    llm_model=s["llm_model"], llm_api_key=key,
+                    llm_prompt=s.get("llm_prompt", ""))

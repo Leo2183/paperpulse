@@ -366,11 +366,22 @@ class PaperListView(QWidget):
                 self, "LLM 未配置",
                 "请先在「检索式配置」视图中填写 LLM base_url / model / key。")
             return
+        if r.get("llm_digest"):
+            ans = QMessageBox.question(
+                self, "覆盖确认",
+                "该篇已有导读,用当前提示词重新生成并覆盖?")
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+            self.conn.execute(
+                "UPDATE papers SET llm_digest=NULL WHERE id=?", (r["id"],))
+            self.conn.commit()
+            r = dict(r, llm_digest=None)
         cfg = dict(
             llm_base_url=settings["llm_base_url"],
             llm_model=settings["llm_model"],
             llm_api_key=llm.dpapi_decrypt(settings["llm_api_key"])
             if settings.get("llm_api_key") else "",
+            llm_prompt=settings.get("llm_prompt", ""),  # P1:自定义提示词
         )
         from PySide6.QtCore import QThread, Signal
 

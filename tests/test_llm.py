@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -204,3 +205,45 @@ def test_digest_custom_prompt_replaces_default(monkeypatch):
     m.digest(p, dict(llm_base_url="u", llm_model="m", llm_api_key="k",
                      llm_prompt=""))
     assert captured["system"] == m.SYSTEM_PROMPT
+
+
+def test_import_subscriptions_shape_guard():
+    """P2-4:订阅导入遇异常结构必须报 ValueError 而非 AttributeError。"""
+    import pytest
+
+    from paperpulse.sources import journals as j
+
+    with pytest.raises(ValueError):
+        j.import_subscriptions(None, [1, 2])
+    with pytest.raises(ValueError):
+        j.import_subscriptions(None, {"journals": "x"})
+    with pytest.raises(ValueError):
+        j.import_subscriptions(None, "not-a-dict")
+
+
+def test_llm_cfg_carries_prompt(tmp_path, monkeypatch, qapp):
+    """P1:_llm_cfg 必须携带 llm_prompt(批量导读/测试连接共用)。"""
+    from paperpulse import config, store
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    conn = store.connect()
+    store.init_db(conn)
+    store.save_setting(conn, "llm_base_url", "https://x/v4")
+    store.save_setting(conn, "llm_model", "m")
+    store.save_setting(conn, "llm_prompt", "侧重方法")
+    from paperpulse.gui.queries_view import QueriesView
+
+    qv = QueriesView(conn)
+    cfg = qv._llm_cfg()
+    assert cfg["llm_prompt"] == "侧重方法"
+
+
+import pytest
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
