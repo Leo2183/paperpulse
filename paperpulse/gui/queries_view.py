@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import llm, queries, store
+from .. import config, llm, queries, store
 from ..sources import crossref, journals
 
 
@@ -180,7 +180,7 @@ def _terms_text(rows: list[dict]) -> str:
 
 class QueriesView(QWidget):
     def _run_bg(self, key: str, job, done_cb) -> bool:
-        """统一后台入口:同 key 运行中拒绝重入;done 后线程自毁(P1-1)。"""
+        """统一后台入口:同 key 运行中拒绝重入;已结束的线程被下次点击直接替换。"""
         w = self._bg_workers.get(key)
         if w is not None and w.isRunning():
             return False
@@ -486,8 +486,7 @@ class QueriesView(QWidget):
             QMessageBox.information(self, "模式校验", msg)
 
         audit_worker.done.connect(_show)
-        audit_worker.finished.connect(audit_worker.deleteLater)
-        self._bg_workers["audit"] = audit_worker
+        self._bg_workers["audit"] = audit_worker  # 不自毁,守卫替换(P1-1)
         audit_worker.start()
 
     def _export_subs(self) -> None:

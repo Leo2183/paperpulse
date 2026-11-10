@@ -287,6 +287,8 @@ def import_subscriptions(conn, data: dict) -> int:
         "SELECT issn FROM journal_subscriptions")}
     added = 0
     for r in data.get("journals", []):
+        if not isinstance(r, dict):
+            continue  # P2-2:嵌套元素非对象跳过,不崩
         if not (r.get("name") and r.get("issn")) or r["issn"] in existing:
             continue
         conn.execute(

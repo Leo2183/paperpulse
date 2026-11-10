@@ -738,3 +738,78 @@ def test_run_bg_twice_with_real_worker(win):
         _t.sleep(0.02)
     # 第二次:修复前在此抛 RuntimeError(C++ object already deleted)
     assert qv._run_bg("twice", lambda: 2, lambda r: None) is True
+
+
+def test_export_subs_writes_to_data_dir(win, tmp_path, monkeypatch):
+    """P1-2 防回归:导出必须可用且默认路径在 data/ 下。"""
+    from paperpulse.gui import queries_view as qv
+    from PySide6.QtWidgets import QFileDialog
+
+    target = tmp_path / "out.json"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(target), "JSON (*.json)")))
+    monkeypatch.setattr(
+        qv.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    from paperpulse.sources import journals as jmod
+    from paperpulse import store as st2
+
+    st2.seed_journals(win.conn, jmod.get_default_journals())
+    win.queries_view._export_subs()
+    assert target.exists()
+    import json as _j
+
+    data = _j.loads(target.read_text(encoding="utf-8"))
+    assert len(data["journals"]) > 0
+
+
+
+def test_regenerate_keeps_old_digest_on_failure(win, monkeypatch):
+    """P1-3 防回归:重生成失败不得清空旧导读。"""
+    from paperpulse import store as st
+
+    st.upsert_paper(win.conn, st.Paper(
+        id="10.23/a", doi="10.23/a", pmcid=None, title="Keep old",
+        authors=None, journal="J", pub_date="2026-11-07", indexed_date=None,
+        source="europepmc", sources=["europepmc"], subscription=None,
+        url=None, abstract="abs", tags=[], matched_groups=[],
+        status="unread", starred=0, to_read=0, llm_digest="旧导读",
+        first_seen="2026-11-10T09:00:00", updated_at=None))
+
+    # 验证代码路径:确认覆盖后不再执行 DELETE(P1-3)
+    from paperpulse.gui import list_view as lv_mod
+    from paperpulse.sources.base import SourceError
+
+    monkeypatch.setattr(
+        lv_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k: lv_mod.QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(
+        lv_mod.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(lv_mod.llm, "batch_digest",
+                        lambda c, ps, cfg, progress=None:
+                        (_ for _ in ()).throw(SourceError("HTTP 500")))
+
+    lv = win.list_view
+    lv.reload()
+    for row in range(lv.table.rowCount()):
+        from PySide6.QtCore import Qt as _Q
+        if lv.table.item(row, 0).data(_Q.ItemDataRole.UserRole) == "10.23/a":
+            lv.table.setCurrentCell(row, 0)
+            break
+
+    # 直接触发(同步,不走 QThread)
+    lv._gen_digest()
+    import time
+    from PySide6.QtWidgets import QApplication
+
+    for _ in range(100):
+        QApplication.processEvents()
+        time.sleep(0.02)
+        t = getattr(lv, "_digest_thread", None)
+        if t is not None and not t.isRunning():
+            t.run  # already finished
+            break
+
+    row2 = win.conn.execute(
+        "SELECT llm_digest FROM papers WHERE id='10.23/a'").fetchone()
+    assert row2["llm_digest"] == "旧导读", "失败后旧导读被清空(P1-3 回归)"

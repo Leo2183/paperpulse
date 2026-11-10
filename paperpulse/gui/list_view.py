@@ -372,9 +372,7 @@ class PaperListView(QWidget):
                 "该篇已有导读,用当前提示词重新生成并覆盖?")
             if ans != QMessageBox.StandardButton.Yes:
                 return
-            self.conn.execute(
-                "UPDATE papers SET llm_digest=NULL WHERE id=?", (r["id"],))
-            self.conn.commit()
+            # 不先清库(P1-3):失败时旧导读仍在;batch_digest 只看传入 dict
             r = dict(r, llm_digest=None)
         cfg = dict(
             llm_base_url=settings["llm_base_url"],
@@ -393,6 +391,8 @@ class PaperListView(QWidget):
                 store.init_db(conn2)
                 try:
                     okk, faill = llm.batch_digest(conn2, [dict(r)], cfg)
+                except Exception:  # P2-1:任何异常都收尾,按钮不永久禁用
+                    okk, faill = 0, 1
                 finally:
                     conn2.close()
                 self.done.emit(okk, faill)

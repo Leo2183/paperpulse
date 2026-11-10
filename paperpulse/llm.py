@@ -141,7 +141,8 @@ def _chat(cfg: dict, messages: list[dict], retries: int = 1) -> str:
             if resp.status_code != 200:
                 raise SourceError(f"LLM HTTP {resp.status_code}: {resp.text[:200]}")
             return resp.json()["choices"][0]["message"]["content"].strip()
-        except (requests.RequestException, SourceError, ValueError, KeyError) as e:
+        except (requests.RequestException, SourceError, ValueError,
+                KeyError, IndexError, TypeError) as e:
             last = e
             if attempt < retries:
                 log.warning("LLM call failed (%s); retrying", e)
