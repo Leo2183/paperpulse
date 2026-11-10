@@ -104,7 +104,6 @@ def test_cli_exit_code_passthrough(monkeypatch):
 def test_scan_command_frozen_points_to_cli_dir(monkeypatch):
     """P1-5:打包态 GUI 注册的任务必须指向真实存在的 CLI exe。"""
     import sys as _sys
-    from pathlib import Path
 
     fake_gui = Path("D:/fake/dist/paperpulse-gui/paperpulse-gui.exe")
     monkeypatch.setattr(_sys, "frozen", True, raising=False)
@@ -153,7 +152,6 @@ def test_register_command_flags_appear_once(monkeypatch):
     import subprocess as sp
 
     monkeypatch.setattr(task, "_selfcheck", lambda: (True, ""))
-    import sys
     monkeypatch.setattr(task, "_scan_command",
                         lambda: f'"{sys.executable}" -m paperpulse scan')
     monkeypatch.setattr(sp, "run", fake_run)

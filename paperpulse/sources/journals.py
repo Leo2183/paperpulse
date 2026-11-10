@@ -4,7 +4,6 @@ import logging
 from collections.abc import Iterator
 import json
 from datetime import date, timedelta
-from pathlib import Path
 
 from .. import prepare, queries, store
 from . import crossref, europepmc
@@ -209,10 +208,13 @@ def scan_journals(
 def backfill_journal(
     conn, jid: int, today: date | None = None,
     progress=None, should_stop=None, mailto: str | None = None,
+    new_ids: list | None = None,
 ) -> int:
     """GUI 新增刊自动回填近 90 天(QThread 调用,窗口 >7 天安全阀自动跳过)。
 
     progress(n) 每处理一篇回调;should_stop() 为真时提前停止(可取消)。
+    new_ids 传入列表时,本次真正新增(首次入库)的论文 id 会收进它——
+    调用方失败回滚据此精准删除,不误删当天早先成功回填的论文(P3-2)。
     """
     today = today or date.today()
     row = dict(conn.execute(
@@ -231,6 +233,8 @@ def backfill_journal(
             started=started, subscription=row["name"])
         if store.upsert_paper(conn, p):
             n += 1
+            if new_ids is not None:
+                new_ids.append(p["id"])
         seen += 1
         if progress:
             progress(seen)

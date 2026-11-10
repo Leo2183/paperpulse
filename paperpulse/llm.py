@@ -4,7 +4,6 @@
 """
 
 import base64
-import json
 import logging
 
 import requests
@@ -181,9 +180,14 @@ def batch_digest(conn, papers: list[dict], cfg: dict,
             log.error("digest failed for %s: %s", p.get("id"), e)
             fail += 1
         else:
-            conn.execute(
-                "UPDATE papers SET llm_digest=? WHERE id=?", (text, p["id"]))
-            conn.commit()
+            def _write() -> None:
+                conn.execute(
+                    "UPDATE papers SET llm_digest=? WHERE id=?",
+                    (text, p["id"]))
+                conn.commit()
+
+            from . import store as _store
+            _store._with_lock_retry(_write)  # 与扫描并发时不因撞锁丢结果
             ok += 1
         if progress:
             progress(i + 1)

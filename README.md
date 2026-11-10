@@ -19,7 +19,7 @@
 ```bat
 git clone https://github.com/Leo2183/paperpulse.git && cd paperpulse
 pip install -e .[dev]
-pytest                       # 170 用例,离线
+pytest                       # 177 用例,离线
 ```
 
 > 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import paperpulse` 静默失败(pythonw 无控制台)。
@@ -31,6 +31,7 @@ pytest                       # 170 用例,离线
 | `python -m paperpulse scan --dry-run` | 打印三轨请求串与窗口,不落库 |
 | `python -m paperpulse scan` | 三轨扫描入库并生成当日日报 |
 | `python -m paperpulse scan --days 40 --llm` | 扩大窗口 + 批量中文导读(需先配置 LLM) |
+| `python -m paperpulse scan --llm --llm-regen` | 已有导读也按当前提示词重新生成(失败保留旧值) |
 | `python -m paperpulse journals` | 逐刊审计 90 天实测发文量 vs 当前模式(约 32 次请求) |
 | `python -m paperpulse gui` | 四视图 GUI |
 | `python -m paperpulse report --date 2026-11-07` | 重生成某日日报 |
@@ -70,7 +71,7 @@ python build.py
 ## 设计与质量
 
 - 设计文档(五轮评审):`docs/superpowers/specs/`;实现评审:`审查报告/`
-- 170 个离线测试(fixture 采用真实 API 录制 + 字段契约断言),GUI offscreen 冒烟
+- 177 个离线测试(fixture 采用真实 API 录制 + 字段契约断言),GUI offscreen 冒烟
 
 ## License
 

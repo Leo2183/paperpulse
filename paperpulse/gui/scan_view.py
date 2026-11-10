@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
 )
 
 from .. import config, engine, llm, report, store, task
-from .queries_view import QueriesView  # noqa: F401  (类型参照)
 
 
 class _QtLogHandler(logging.Handler):
@@ -79,6 +78,8 @@ class DigestWorker(QThread):
         try:
             ok, fail = llm.batch_digest(
                 conn, self.papers, self.cfg, progress=on_progress)
+        except Exception:  # P2-5:批量异常也必须收尾,按钮不得永久禁用
+            ok, fail = 0, -1  # fail<0 标记"异常终止"(区别于单篇失败)
         finally:
             conn.close()
         self.done.emit(ok, fail)
@@ -221,6 +222,12 @@ class ScanView(QWidget):
 
     def _digest_done(self, ok: int, fail: int) -> None:
         self.btn_digest.setEnabled(True)
+        if fail < 0:  # P2-5:批量异常终止(连接/锁等),区别于单篇失败
+            self.digest_status.setText("异常终止")
+            QMessageBox.warning(
+                self, "批量导读", "批量导读异常终止(部分结果可能已写入,"
+                "详见 data/scan.log)。")
+            return
         self.digest_status.setText(f"完成:成功 {ok},失败/跳过 {fail}")
         if self.refresh_parent:
             self.refresh_parent()

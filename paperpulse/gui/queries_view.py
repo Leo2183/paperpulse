@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import config, llm, queries, store
+from .. import config, llm, store
 from ..sources import crossref, journals
 from .workers import FnWorker  # noqa: F401  (模块级名保留:测试 monkeypatch 挂这里)
 
@@ -55,7 +55,7 @@ class AuditWorker(QThread):
         super().__init__()
 
     def run(self):
-        from .. import config, store as store_mod
+        from .. import store as store_mod
 
         conn = store_mod.connect()
         store_mod.init_db(conn)
@@ -79,8 +79,6 @@ class NewJournalWorker(QThread):
         self.title, self.issn = title, issn
 
     def run(self):
-        from datetime import date as _date
-
         conn = store.connect()
         store.init_db(conn)
         try:
@@ -93,20 +91,16 @@ class NewJournalWorker(QThread):
             jid = getattr(self, "_inserted_jid", None)
             if jid is not None:  # P2-3:删半成品订阅,重复添加可重试
                 try:
-                    row = conn.execute(
-                        "SELECT name FROM journal_subscriptions WHERE id=?",
-                        (jid,)).fetchone()
                     conn.execute(
                         "DELETE FROM journal_subscriptions WHERE id=?", (jid,))
-                    if row:
-                        # P3-12:同时清掉本次回填写入的论文,不留孤儿
-                        # (subscription=刊名 但订阅表查不到该刊)。
-                        # 时间戳与 backfill_journal 一致;该订阅行刚建,
-                        # 当天正常扫描不可能产出同订阅论文,删除安全。
-                        started = _date.today().isoformat() + "T00:00:00"
-                        conn.execute(
-                            "DELETE FROM papers WHERE subscription=?"
-                            " AND first_seen=?", (row["name"], started))
+                    ids = getattr(self, "_backfill_new_ids", None) or []
+                    if ids:
+                        # P3-2:只删本次回填真正新增的论文(已见论文
+                        # upsert 返回 False 不入列),不误删当天早先
+                        # 成功回填/扫描入库的同订阅论文
+                        conn.executemany(
+                            "DELETE FROM papers WHERE id=?",
+                            [(i,) for i in ids])
                     conn.commit()
                 except Exception:
                     pass
@@ -118,9 +112,7 @@ class NewJournalWorker(QThread):
 
     def _run_inner(self, conn) -> int:
         """探测→入库→回填;异常由 run() 统一收尾(P2-4)。"""
-        from .. import config, store as store_mod
-
-        settings = store_mod.load_settings(conn)
+        settings = store.load_settings(conn)
         dup = conn.execute(
             "SELECT id FROM journal_subscriptions WHERE issn=?",
             (self.issn,)).fetchone()
@@ -145,10 +137,13 @@ class NewJournalWorker(QThread):
         self.stage.emit(
             f"已添加 {self.title}:90 天 "
             f"{count if count >= 0 else '?'} 条,模式 {mode}{extra};回填中…")
+        new_ids: list = []
+        self._backfill_new_ids = new_ids  # 失败回滚精准删除用(P3-2)
         n = journals.backfill_journal(
             conn, jid, progress=self.progress.emit,
             should_stop=self.isInterruptionRequested,
-            mailto=settings.get("crossref_mailto") or None)
+            mailto=settings.get("crossref_mailto") or None,
+            new_ids=new_ids)
         return n
 
 
@@ -411,8 +406,10 @@ class QueriesView(QWidget):
             "SELECT mode FROM journal_subscriptions WHERE issn=?",
             (issn,)).fetchone()
         new = "filter" if cur["mode"] == "full" else "full"
+        # mode_user_set=1:用户手动选择,预设清单的后续修正不再覆盖(P2-2)
         self.conn.execute(
-            "UPDATE journal_subscriptions SET mode=? WHERE issn=?",
+            "UPDATE journal_subscriptions SET mode=?, mode_user_set=1"
+            " WHERE issn=?",
             (new, issn))
         self.conn.commit()
         self._reload_journals()
@@ -468,11 +465,17 @@ class QueriesView(QWidget):
             if isinstance(rows, Exception):
                 QMessageBox.warning(self, "校验失败", str(rows)[:300])
                 return
-            # 表格补三列展示
+            # P2-3:审计要跑数十秒,表格可能已被中途增删刊改动——先刷新成
+            # 当前刊序,再按 ISSN 对位回填(按行号回填会整体串位)
+            self._reload_journals()
+            by_issn = {r["issn"]: r for r in rows}
             self.j_table.setColumnCount(8)
             self.j_table.setHorizontalHeaderLabels(
                 ["刊名", "ISSN", "模式", "路由", "启用", "90天量", "建议", "不一致"])
-            for i, r in enumerate(rows):
+            for i in range(self.j_table.rowCount()):
+                r = by_issn.get(self.j_table.item(i, 1).text())
+                if not r:
+                    continue  # 审计期间新加的刊,本轮无数据
                 self.j_table.setItem(i, 5, QTableWidgetItem(str(r["count_90d"])))
                 self.j_table.setItem(i, 6, QTableWidgetItem(r["suggested"] or "-"))
                 self.j_table.setItem(

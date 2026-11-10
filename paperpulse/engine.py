@@ -5,7 +5,7 @@ import logging
 import time
 from datetime import date, timedelta
 
-from . import prepare, queries, store, tags
+from . import prepare, queries, store
 from .ids import normalize_doi, paper_key  # noqa: F401  (re-export)
 from .sources import biorxiv, europepmc, journals
 from .sources.base import SourceError
@@ -50,7 +50,8 @@ def last_ok_finished(conn) -> date | None:
 
 
 def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
-             days: int | None = None, run_ts: str | None = None) -> int:
+             days: int | None = None, run_ts: str | None = None,
+             llm_regen: bool = False) -> int:
     """三轨扫描。run_ts:本次 run 的起始时间戳(默认墙钟)——所有入库论文
     的 first_seen 统一取该值,跨零点 run 归入起始日(spec §5)。
 
@@ -196,7 +197,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             per_source["biorxiv"] = {"disabled": True}
 
         if llm:
-            _run_llm_digest(conn, settings, started)
+            _run_llm_digest(conn, settings, started, regen=llm_regen)
 
         if enabled_tracks and failed_tracks == enabled_tracks:
             status = "failed"  # 全部启用轨道失败
@@ -223,8 +224,13 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
 
 
 
-def _run_llm_digest(conn, settings: dict, started: str) -> None:
-    """--llm 路径(spec §8):对本次 run 新增的未读论文批量导读。"""
+def _run_llm_digest(conn, settings: dict, started: str,
+                    regen: bool = False) -> None:
+    """--llm 路径(spec §8):对本次 run 新增的未读论文批量导读。
+
+    regen=True(--llm-regen):已有导读的也按当前提示词重新生成,
+    失败保留旧值(与 GUI 批量重生成同语义,第12轮 P3-9)。
+    """
     from . import llm as llm_mod
 
     if not (settings.get("llm_base_url") and settings.get("llm_model")):
@@ -241,10 +247,15 @@ def _run_llm_digest(conn, settings: dict, started: str) -> None:
     cfg = dict(llm_base_url=settings["llm_base_url"],
                llm_model=settings["llm_model"], llm_api_key=key,
                llm_prompt=settings.get("llm_prompt", ""))  # 自定义总结重点
+    where = "status='unread' AND abstract IS NOT NULL"
+    if not regen:
+        where += " AND llm_digest IS NULL"
     papers = [dict(r) for r in conn.execute(
         "SELECT id, title, abstract, llm_digest FROM papers"
-        " WHERE status='unread' AND llm_digest IS NULL AND abstract IS NOT NULL"
+        f" WHERE {where}"
         " AND substr(first_seen,1,10)=substr(?,1,10)", (started,))]
+    if regen and papers:
+        papers = [dict(r, llm_digest=None) for r in papers]  # 失败保旧
     if not papers:
         return
     ok, fail = llm_mod.batch_digest(conn, papers, cfg)

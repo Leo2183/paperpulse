@@ -4,16 +4,19 @@
 """
 
 import json
+import logging
 import sqlite3
 import time
 from typing import TypedDict
 
 from . import config
 
-SCHEMA_VERSION = 3
+log = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 4
 
 DEFAULT_SETTINGS = {
-    "schema_version": "1",
+    "schema_version": "4",
     "llm_base_url": "",
     "llm_api_key": "",  # DPAPI 密文
     "llm_model": "",
@@ -73,7 +76,9 @@ CREATE TABLE IF NOT EXISTS papers (
   to_read        INTEGER DEFAULT 0,
   llm_digest     TEXT,
   first_seen     TEXT NOT NULL,
-  updated_at     TEXT
+  updated_at     TEXT,
+  stale          INTEGER DEFAULT 0,
+  added_at       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_papers_first_seen ON papers(first_seen);
 CREATE INDEX IF NOT EXISTS idx_papers_pub_date ON papers(pub_date);
@@ -103,7 +108,8 @@ CREATE TABLE IF NOT EXISTS journal_subscriptions (
   mode TEXT NOT NULL,
   route TEXT NOT NULL,
   enabled INTEGER DEFAULT 1,
-  added_at TEXT
+  added_at TEXT,
+  mode_user_set INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
@@ -139,6 +145,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             (str(SCHEMA_VERSION),),
         )
     conn.commit()
+    _sync_journal_modes(conn)  # 每次启动增量同步(v4 起,只动未手动改过的刊)
 
 
 def _get_schema_version(conn) -> int:
@@ -157,6 +164,8 @@ def _migrate(conn, current: int) -> None:
         _migrate_v2(conn)
     if current < 3:
         _migrate_v3(conn)
+    if current < 4:
+        _migrate_v4(conn)
 
 
 def _migrate_v2(conn) -> None:
@@ -194,13 +203,63 @@ def _migrate_v3(conn) -> None:
     """
     from .sources.journals import get_default_journals
 
+    changed = []
     for r in get_default_journals():
-        conn.execute(
+        cur = conn.execute(
             "UPDATE journal_subscriptions SET mode=?"
             " WHERE issn=? AND mode!=?",
             (r["mode"], r["issn"], r["mode"]),
         )
+        if cur.rowcount:
+            changed.append(f"{r['issn']}->{r['mode']}")
     conn.commit()
+    if changed:  # P2-2:v3 无差别同步(含用户手改),必须留痕
+        log.info("v3 journal mode sync: %s", ", ".join(changed))
+
+
+def _migrate_v4(conn) -> None:
+    """v4(第12轮 P2-2/P2-4):订阅模式用户标记 + 论文真实入库时刻。
+
+    - journal_subscriptions.mode_user_set:GUI 改过模式的刊置 1,
+      此后内置/preset 清单的 mode 修正不再覆盖它(_sync_journal_modes)
+    - papers.added_at:真实入库时刻(墙钟)。first_seen 兼任日报归属日
+      (回填写当天 00:00),做「新」徽标会把回填论文全部漏掉——徽标
+      改用 added_at;迁移前的旧行为 NULL,不标「新」(本就非新)
+    """
+    cols = {r["name"] for r in conn.execute(
+        "SELECT name FROM pragma_table_info('journal_subscriptions')")}
+    if "mode_user_set" not in cols:
+        conn.execute(
+            "ALTER TABLE journal_subscriptions"
+            " ADD COLUMN mode_user_set INTEGER DEFAULT 0")
+    pcols = {r["name"] for r in conn.execute(
+        "SELECT name FROM pragma_table_info('papers')")}
+    if "added_at" not in pcols:
+        conn.execute("ALTER TABLE papers ADD COLUMN added_at TEXT")
+    conn.commit()
+
+
+def _sync_journal_modes(conn) -> None:
+    """每次启动:内置/preset 清单的 mode 修正同步到未手动改过的刊。
+
+    只动 mode_user_set=0 的行(第12轮 P2-2/P3-6,取代"一次性迁移"
+    模式——今后预设再改 mode 无需新迁移);用户在 GUI 切换过的刊
+    (mode_user_set=1)永不被覆盖。
+    """
+    from .sources.journals import get_default_journals
+
+    changed = []
+    for r in get_default_journals():
+        cur = conn.execute(
+            "UPDATE journal_subscriptions SET mode=?"
+            " WHERE issn=? AND mode!=? AND COALESCE(mode_user_set,0)=0",
+            (r["mode"], r["issn"], r["mode"]),
+        )
+        if cur.rowcount:
+            changed.append(f"{r['issn']}->{r['mode']}")
+    conn.commit()
+    if changed:
+        log.info("journal mode sync from preset: %s", ", ".join(changed))
 
 
 def _with_lock_retry(fn, attempts: int = 3, delay: float = 0.2):
@@ -236,8 +295,8 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
                 "INSERT INTO papers (id, doi, pmcid, title, authors, journal,"
                 " pub_date, indexed_date, source, sources, subscription, url,"
                 " abstract, tags, matched_groups, status, starred, to_read,"
-                " llm_digest, first_seen, updated_at, stale)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " llm_digest, first_seen, updated_at, stale, added_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     p["id"], p["doi"], p["pmcid"], p["title"], p["authors"],
                     p["journal"], p["pub_date"], p["indexed_date"], p["source"],
@@ -247,6 +306,7 @@ def upsert_paper(conn: sqlite3.Connection, p: Paper) -> bool:
                     p.get("starred", 0), p.get("to_read", 0), p["llm_digest"],
                     first_seen, now,
                     1 if p.get("_stale") else 0,
+                    now,  # added_at:真实入库时刻(「新」徽标用,P2-4)
                 ),
             )
             conn.commit()
@@ -318,12 +378,15 @@ def load_settings(conn) -> dict:
 
 
 def save_setting(conn, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO settings(key, value) VALUES (?, ?) "
-        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, value),
-    )
-    conn.commit()
+    def _do() -> None:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+
+    _with_lock_retry(_do)  # P3-1:防抖槽/设置页并发写时不再裸抛 locked
 
 
 def advance_papers_seen(conn) -> str | None:

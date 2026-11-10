@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Callable
+from typing import Callable
 
 import requests
 

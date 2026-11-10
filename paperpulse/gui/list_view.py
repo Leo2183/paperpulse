@@ -51,8 +51,12 @@ class PaperListView(QWidget):
         self.c_starred = QCheckBox("仅星标")
         self.c_to_read = QCheckBox("仅待精读")
         self.c_new = QCheckBox("仅看新增")
+        if not self.new_since:
+            self.c_new.setEnabled(False)  # 首次启动无基线,防"像坏了"(P3-7)
+            self.c_new.setToolTip("首次启动没有参照;下次打开 GUI 起新生效")
         self.f_title = QLineEdit()
         self.f_title.setPlaceholderText("搜索…")
+        self.f_title.setMinimumWidth(160)  # 防 QLineEdit 默认 18px 被挤没(P2-1)
         self.f_search_scope = QComboBox()
         self.f_search_scope.addItems(["两者", "标题", "导读"])
         btn = QPushButton("刷新")
@@ -69,14 +73,15 @@ class PaperListView(QWidget):
             changer.connect(self.reload)
         self.f_title.textChanged.connect(self.reload)
 
-        bar = QHBoxLayout()
+        # 拆两行(P2-1):一行 15 个控件把最小宽度顶到 1424,搜索框只剩 18px
+        bar1 = QHBoxLayout()  # 第一行:日期窗 + 来源/状态/标签
         for w in (self.c_all_dates, QLabel("从"), self.f_from, QLabel("到"),
-                  self.f_to,
-                  self.f_source, self.f_status, self.f_tag,
-                  self.c_starred, self.c_to_read, self.c_new,
-                  self.f_title, self.f_search_scope, btn,
-                  self.filter_hint):
-            bar.addWidget(w)
+                  self.f_to, self.f_source, self.f_status, self.f_tag):
+            bar1.addWidget(w)
+        bar2 = QHBoxLayout()  # 第二行:旗标勾选 + 搜索 + 范围 + 刷新
+        for w in (self.c_starred, self.c_to_read, self.c_new,
+                  self.f_title, self.f_search_scope, btn, self.filter_hint):
+            bar2.addWidget(w)
 
         # 表格
         self.table = QTableWidget(0, len(COLUMNS))
@@ -119,7 +124,8 @@ class PaperListView(QWidget):
         right.addLayout(detail_bar)
 
         top = QVBoxLayout()
-        top.addLayout(bar)
+        top.addLayout(bar1)
+        top.addLayout(bar2)
         body = QHBoxLayout()
         body.addWidget(self.table, stretch=3)
         body.addLayout(right, stretch=2)
@@ -147,20 +153,26 @@ class PaperListView(QWidget):
         if self.c_to_read.isChecked():
             where.append("to_read = 1")
         if self.c_new.isChecked() and self.new_since:
-            where.append("first_seen > ?")
+            # 用 added_at(真实入库时刻):回填论文 first_seen=当天00:00,
+            # 与基线(启动时刻)比较必为假,会整批漏标(P2-4)
+            where.append("added_at > ?")
             params.append(self.new_since)
         kw = self.f_title.text().strip()
         if kw:
             scope = self.f_search_scope.currentText()
-            like = f"%{kw}%"
+            # LIKE 通配符按字面匹配(P3-8):% / _ 不再当通配符
+            esc = (kw.replace("\\", "\\\\")
+                     .replace("%", "\\%").replace("_", "\\_"))
+            like = f"%{esc}%"
             if scope == "标题":
-                where.append("title LIKE ?")
+                where.append("title LIKE ? ESCAPE '\\'")
                 params.append(like)
             elif scope == "导读":  # 搜索导读关键词
-                where.append("llm_digest LIKE ?")
+                where.append("llm_digest LIKE ? ESCAPE '\\'")
                 params.append(like)
             else:  # 两者(默认)
-                where.append("(title LIKE ? OR llm_digest LIKE ?)")
+                where.append("(title LIKE ? ESCAPE '\\' "
+                             "OR llm_digest LIKE ? ESCAPE '\\')")
                 params.extend([like, like])
         if not self.c_all_dates.isChecked():
             d_from = self.f_from.date().toString("yyyy-MM-dd")
@@ -193,9 +205,9 @@ class PaperListView(QWidget):
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
             flags = []
-            if (self.new_since and r["first_seen"]
-                    and r["first_seen"] > self.new_since):
-                flags.append("新")  # 上次打开 GUI 后入库(ISO 串比较同格式安全)
+            if (self.new_since and r["added_at"]
+                    and r["added_at"] > self.new_since):
+                flags.append("新")  # 上次打开 GUI 后真实入库(added_at,P2-4)
             if r["starred"]:
                 flags.append("★")
             if r["to_read"]:
@@ -381,7 +393,6 @@ class PaperListView(QWidget):
         r = self._current_row()
         if not r:
             return
-        from .. import llm
 
         settings = store.load_settings(self.conn)
         if not (settings.get("llm_base_url") and settings.get("llm_model")):

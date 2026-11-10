@@ -9,7 +9,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import config, queries, store
+from . import config, queries
 
 IMAGING_TAG = "成像/空间"
 
@@ -130,7 +130,7 @@ def generate(conn, for_date: date, out_dir=None) -> Path:
             lines.append("(首跑回填,单日量大属预期;日常窗口会回落)")
         a = [p for p in tiers["catchup"] if modes.get(p["subscription"]) != "full"]
         b = [p for p in tiers["catchup"] if modes.get(p["subscription"]) == "full"]
-        lines.append(f"### 4a 巨刊筛选(filter,标 [订阅])")
+        lines.append("### 4a 巨刊筛选(filter,标 [订阅])")
         for p in a:
             lines.append(_entry(p, modes))
             lines.append("")

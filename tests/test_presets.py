@@ -1,7 +1,6 @@
 """预设(主题包)行为:一致性哨兵、空预设语义、坏 JSON 可见、打包定位。"""
 import json
 import sys
-from pathlib import Path
 
 import pytest
 

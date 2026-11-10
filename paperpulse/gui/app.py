@@ -3,7 +3,7 @@
 import sys
 
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QListWidget, QMainWindow,
+    QApplication, QHBoxLayout, QListWidget, QMainWindow,
     QStackedWidget, QWidget,
 )
 
@@ -66,6 +66,25 @@ class MainWindow(QMainWindow):
         if hasattr(view, "reload"):
             view.reload()
 
+    def closeEvent(self, event) -> None:
+        """收尾:防抖中的提示词落库 + 后台线程仍在跑时确认(第12轮 P3-1/P3-11)。"""
+        try:
+            self.queries_view._save_prompt()  # 防抖窗口内的最后编辑不丢
+        except Exception:
+            pass
+        busy = [w for w in (getattr(self.scan_view, "_scan_worker", None),
+                            getattr(self.scan_view, "_digest_worker", None))
+                if w is not None and w.isRunning()]
+        if busy:
+            from PySide6.QtWidgets import QMessageBox
+
+            ans = QMessageBox.question(
+                self, "退出确认",
+                "后台扫描/批量导读仍在进行,退出会中断并丢失部分进度。确定退出?")
+            if ans != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        super().closeEvent(event)
 
 
 def main() -> int:

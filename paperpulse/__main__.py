@@ -14,6 +14,8 @@ def main(argv=None) -> int:
     sc = sub.add_parser("scan", help="run all tracks")
     sc.add_argument("--days", type=int, default=None)
     sc.add_argument("--llm", action="store_true")
+    sc.add_argument("--llm-regen", action="store_true",
+                    help="与 --llm 连用:已有导读也按当前提示词重新生成")
     sc.add_argument("--dry-run", action="store_true")
 
     rp = sub.add_parser("report", help="regenerate a daily report")
@@ -31,7 +33,8 @@ def main(argv=None) -> int:
 
         from .engine import run_scan
 
-        rc = run_scan(dry_run=args.dry_run, llm=args.llm, days=args.days)
+        rc = run_scan(dry_run=args.dry_run, llm=args.llm, days=args.days,
+                      llm_regen=args.llm_regen)
         if not args.dry_run and rc in (0, 2):
             from . import report as _report, store as _store
             from .engine import last_report_date

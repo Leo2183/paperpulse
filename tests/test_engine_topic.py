@@ -313,3 +313,26 @@ def test_biorxiv_matched_groups_survive_prepare(conn, monkeypatch):
     mg = json.loads(conn.execute(
         "SELECT matched_groups FROM papers WHERE id='10.13/p'").fetchone()[0])
     assert sorted(mg) == ["1", "2"]
+
+
+def test_llm_regen_includes_cached_and_nulls(conn, monkeypatch):
+    """P3-9(--llm-regen):已有导读的论文也入选并置 None(失败保旧)。"""
+    store.save_setting(conn, "llm_base_url", "https://x/v4")
+    store.save_setting(conn, "llm_model", "m")
+    monkeypatch.setattr(
+        "paperpulse.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    store.upsert_paper(conn, _paper("10.50/a", "Cached", llm_digest="旧导读"))
+    store.upsert_paper(conn, _paper("10.50/b", "Fresh"))
+    captured = {}
+
+    def fake_batch(c, papers, cfg, progress=None):
+        captured["rows"] = papers
+        return 0, 0
+
+    monkeypatch.setattr("paperpulse.llm.batch_digest", fake_batch)
+    rc = engine.run_scan(conn=conn, llm=True, llm_regen=True)
+    assert rc == 0
+    got = {p["id"]: p.get("llm_digest") for p in captured["rows"]}
+    assert set(got) == {"10.50/a", "10.50/b"}, "regen 必须包含已有导读的论文"
+    assert all(v is None for v in got.values())

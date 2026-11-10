@@ -491,8 +491,6 @@ def test_bg_buttons_reentry_safe(win):
 
     import paperpulse.gui.queries_view as qmod
 
-    monkeypatch_target = SlowWorker
-    import pytest
 
     from unittest.mock import patch
 
@@ -629,7 +627,7 @@ def test_reload_preserves_selection_by_id(win):
     lv = win.list_view
     lv.reload()
     lv.table.sortItems(1)  # 用户点过表头排序(重排后 reload 才会跳行)
-    i = next(i for i, r in enumerate(lv._rows) if r["id"] == "10.21/keep")
+    next(i for i, r in enumerate(lv._rows) if r["id"] == "10.21/keep")
     for row in range(lv.table.rowCount()):
         from PySide6.QtCore import Qt as _Qt
         if lv.table.item(row, 0).data(_Qt.ItemDataRole.UserRole) == "10.21/keep":
@@ -832,15 +830,21 @@ def _mk_paper(pid, **kw):
 
 
 def test_new_badge_and_filter_only_new(win):
-    """「新」徽标:基线之后入库的旗标列标「新」;「仅看新增」过滤生效。"""
+    """「新」徽标按 added_at(真实入库时刻)判定;「仅看新增」过滤生效。"""
     from PySide6.QtCore import Qt
 
     from paperpulse import store as st
 
-    st.upsert_paper(win.conn, _mk_paper(
-        "10.30/new", first_seen="2026-11-10T12:00:00"))
-    st.upsert_paper(win.conn, _mk_paper(
-        "10.30/old", first_seen="2026-11-01T08:00:00"))
+    st.upsert_paper(win.conn, _mk_paper("10.30/new"))
+    st.upsert_paper(win.conn, _mk_paper("10.30/old"))
+    # added_at 由 upsert 写墙钟;显式控制它验证徽标边界(P2-4 语义)
+    win.conn.execute(
+        "UPDATE papers SET added_at=? WHERE id='10.30/new'",
+        ("2026-11-10T12:00:00",))
+    win.conn.execute(
+        "UPDATE papers SET added_at=? WHERE id='10.30/old'",
+        ("2026-11-01T08:00:00",))
+    win.conn.commit()
     lv = win.list_view
     lv.new_since = "2026-11-09T00:00:00"
     lv.reload()
@@ -972,7 +976,8 @@ def test_new_journal_rollback_removes_orphan_papers(qapp, tmp_path, monkeypatch)
         p = dict(_mk_paper("10.99/x", source="crossref"))
         prepare.prepare_paper(p, group_names=[], g3_phrases=[],
                               started=started, subscription="X Journal")
-        st.upsert_paper(conn, p)
+        if st.upsert_paper(conn, p):
+            kw["new_ids"].append("10.99/x")  # 模拟真实回填的 new_ids 收集
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(jmod, "backfill_journal", fake_backfill)
@@ -989,3 +994,117 @@ def test_new_journal_rollback_removes_orphan_papers(qapp, tmp_path, monkeypatch)
     assert conn.execute(
         "SELECT COUNT(*) FROM papers WHERE subscription='X Journal'"
     ).fetchone()[0] == 0, "回滚后不得残留孤儿论文(P3-12)"
+
+
+def test_digest_worker_survives_exception(qapp, tmp_path, monkeypatch):
+    """P2-5:批量导读线程异常必须发 done(0,-1),按钮不永久禁用。"""
+    import sqlite3
+
+    from paperpulse import config, store as st
+    from paperpulse.gui import scan_view as sv_mod
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    conn = st.connect()
+    st.init_db(conn)
+    st.upsert_paper(conn, _mk_paper("10.40/a"))
+
+    def boom(c, papers, cfg, progress=None):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(sv_mod.llm, "batch_digest", boom)
+    results = []
+    w = sv_mod.DigestWorker(
+        [{"id": "10.40/a", "title": "T", "abstract": "x", "llm_digest": None}],
+        dict(llm_base_url="https://x/v4", llm_model="m", llm_api_key="k"))
+    w.done.connect(lambda ok, fail: results.append((ok, fail)))
+    w.run()  # 同步执行 run 体
+    assert results == [(0, -1)], "异常必须以 (0,-1) 收尾"
+    conn.close()
+
+
+def test_digest_done_negative_fail_restores_button(win, monkeypatch):
+    """P2-5:_digest_done 收到 fail<0 时恢复按钮并提示异常终止。"""
+    from paperpulse.gui import scan_view as sv_mod
+
+    warned = []
+    monkeypatch.setattr(
+        sv_mod.QMessageBox, "warning",
+        staticmethod(lambda *a, **k: warned.append(a)))
+    sv = win.scan_view
+    sv.btn_digest.setEnabled(False)
+    sv._digest_done(0, -1)
+    assert sv.btn_digest.isEnabled()
+    assert sv.digest_status.text() == "异常终止"
+    assert warned
+
+
+def test_audit_backfill_matches_issn_after_delete(win, monkeypatch):
+    """P2-3:审计期间删刊,结果按 ISSN 对位回填,不整体串行。"""
+    from paperpulse.gui import queries_view as qv
+
+    for name, issn in (("A", "1111-0001"), ("B", "1111-0002"),
+                       ("C", "1111-0003")):
+        win.conn.execute(
+            "INSERT INTO journal_subscriptions (name, issn, mode, route)"
+            " VALUES (?,?,'filter','')", (name, issn))
+    win.conn.commit()
+    win.queries_view._reload_journals()
+
+    rows = [dict(name=n, issn=i, mode="filter", enabled=True,
+                 count_90d=c, suggested="full", mismatch=True)
+            for n, i, c in (("A", "1111-0001", 10),
+                            ("B", "1111-0002", 200),
+                            ("C", "1111-0003", 300))]
+
+    class LateWorker:
+        _cb = None
+
+        class done:
+            @staticmethod
+            def connect(fn):
+                LateWorker._cb = fn
+
+        @staticmethod
+        def isRunning():
+            return False
+
+        def start(self):
+            pass  # 不立即派发,模拟审计在跑
+
+    monkeypatch.setattr(qv, "AuditWorker", LateWorker)
+    monkeypatch.setattr(
+        qv.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    qv0 = win.queries_view
+    qv0._audit_modes()
+    # 审计进行中删掉 A,表格重载成 B/C
+    win.conn.execute(
+        "DELETE FROM journal_subscriptions WHERE issn='1111-0001'")
+    win.conn.commit()
+    qv0._reload_journals()
+    # 审计结果到达:回填必须各自对位
+    LateWorker._cb(rows)
+    got = {qv0.j_table.item(i, 1).text(): qv0.j_table.item(i, 5).text()
+           for i in range(qv0.j_table.rowCount())}
+    assert got["1111-0002"] == "200" and got["1111-0003"] == "300"
+    # P3-5 回归:audit 按钮已连坏两轮,连点第二次不得抛 RuntimeError
+    qv0._audit_modes()
+    qv0._audit_modes()
+
+
+def test_filter_bar_minimum_width(win):
+    """P2-1:筛选条拆两行后,列表视图最小宽度不超 1280。"""
+    lv = win.list_view
+    assert lv.minimumSizeHint().width() <= 1280
+    assert lv.f_title.minimumWidth() >= 120, "搜索框不得被挤成 18px"
+
+
+def test_search_like_wildcards_escaped(win):
+    """P3-8:% 与 _ 按字面匹配,不再当 LIKE 通配符。"""
+    lv = win.list_view
+    lv.f_title.setText("%")
+    lv.reload()
+    assert lv.table.rowCount() == 0, "通配符未转义时 % 命中全部"
+    lv.f_title.setText("_")
+    lv.reload()
+    assert lv.table.rowCount() == 0
+    lv.f_title.setText("")

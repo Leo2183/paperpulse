@@ -1,4 +1,3 @@
-import json
 from datetime import date
 
 import pytest
@@ -167,7 +166,7 @@ def test_entry_polish_no_mode_fallback_no_dup_marks(conn):
     store.upsert_paper(conn, _paper("10.11/b", "No abs", abstract=None))
     text = report.generate(conn, date(2026, 11, 6)).read_text(encoding="utf-8")
     assert "*Nature*" in text and "*filter*" not in text and "*full*" not in text
-    line = next(l for l in text.splitlines() if "10.11/a" in l or "Sub no journal" in l)
+    next(l for l in text.splitlines() if "10.11/a" in l or "Sub no journal" in l)
     src_line = next(l for l in text.splitlines()
                     if l.startswith(("Alice A", "A et al")) and "来源" in l)
     assert src_line.count("[订阅]") == 0  # 标记只在标题行,来源行不重复
