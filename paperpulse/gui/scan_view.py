@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import config, engine, llm, report, store, task
+from . import workers
 
 
 class _QtLogHandler(logging.Handler):
@@ -24,6 +25,9 @@ class _QtLogHandler(logging.Handler):
             self._emit(self.format(record))
         except RuntimeError:  # 组件已销毁
             pass
+
+
+log = logging.getLogger(__name__)
 
 
 class ScanWorker(QThread):
@@ -73,15 +77,18 @@ class DigestWorker(QThread):
             done_count += 1
             self.progress.emit(done_count, total)
 
-        conn = store_mod.connect()
-        store_mod.init_db(conn)
+        conn = None
         try:
+            conn = store_mod.connect()
+            store_mod.init_db(conn)
             ok, fail = llm.batch_digest(
                 conn, self.papers, self.cfg, progress=on_progress)
-        except Exception:  # P2-5:批量异常也必须收尾,按钮不得永久禁用
+        except Exception:  # P2-2:连接/初始化/执行任何异常都必须收尾
+            log.exception("batch digest worker aborted")  # P3-1:别让用户查空日志
             ok, fail = 0, -1  # fail<0 标记"异常终止"(区别于单篇失败)
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
         self.done.emit(ok, fail)
 
 
@@ -109,7 +116,7 @@ class ScanView(QWidget):
         self.task_status = QLabel()
 
         self.spin_days = QSpinBox()
-        self.spin_days.setRange(1, 30)
+        self.spin_days.setRange(1, 365)  # 附录 P3-11:库龄>30 天的老论文也要能批量处理
         self.spin_days.setValue(3)
         self.c_regen = QCheckBox("含已有导读(按当前提示词重生成)")
         self.btn_digest = QPushButton("批量生成中文导读")
@@ -155,7 +162,7 @@ class ScanView(QWidget):
         self._scan_worker = ScanWorker()
         self._scan_worker.log_line.connect(self.log.append)
         self._scan_worker.finished_code.connect(self._scan_done)
-        self._scan_worker.start()
+        workers.start(self._scan_worker)
 
     def _scan_done(self, rc: int) -> None:
         self.progress.hide()
@@ -203,14 +210,18 @@ class ScanView(QWidget):
         if not papers:
             self.digest_status.setText("没有符合条件的待导读论文。")
             return
+        # 附录 P2-5:先亮出规模,大批量(不论是否重生成)统一确认防误触
+        self.digest_status.setText(
+            f"待生成 {len(papers)} 篇" + ("(含已有导读)" if regen else ""))
+        if len(papers) > 50:
+            extra = "并重新生成已有导读" if regen else ""
+            ans = QMessageBox.question(
+                self, "批量导读确认",
+                f"将对 {len(papers)} 篇论文{extra}调用 LLM(串行,可能耗时"
+                "较久并产生费用),继续?")
+            if ans != QMessageBox.StandardButton.Yes:
+                return
         if regen:
-            if len(papers) > 30:  # 大批量重生成防误触
-                ans = QMessageBox.question(
-                    self, "批量重生成确认",
-                    f"将用当前提示词重新生成 {len(papers)} 篇导读"
-                    "(含已有导读;失败的保留旧值),继续?")
-                if ans != QMessageBox.StandardButton.Yes:
-                    return
             # 置 None 让 batch_digest 重调;失败不写库,旧导读保留(P1-3 语义)
             papers = [dict(r, llm_digest=None) for r in papers]
         self.btn_digest.setEnabled(False)
@@ -218,19 +229,20 @@ class ScanView(QWidget):
         self._digest_worker.progress.connect(
             lambda d, t: self.digest_status.setText(f"导读中…{d}/{t}"))
         self._digest_worker.done.connect(self._digest_done)
-        self._digest_worker.start()
+        workers.start(self._digest_worker)
 
     def _digest_done(self, ok: int, fail: int) -> None:
         self.btn_digest.setEnabled(True)
+        self.c_regen.setChecked(False)  # 附录 P3-12:防勾着不放的下轮静默全量重刷
         if fail < 0:  # P2-5:批量异常终止(连接/锁等),区别于单篇失败
             self.digest_status.setText("异常终止")
             QMessageBox.warning(
                 self, "批量导读", "批量导读异常终止(部分结果可能已写入,"
                 "详见 data/scan.log)。")
-            return
-        self.digest_status.setText(f"完成:成功 {ok},失败/跳过 {fail}")
+        else:
+            self.digest_status.setText(f"完成:成功 {ok},失败/跳过 {fail}")
         if self.refresh_parent:
-            self.refresh_parent()
+            self.refresh_parent()  # P3-8:异常终止也刷新,部分写入立即可见
 
     # ------------------------------------------------------------- 报告
 

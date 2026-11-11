@@ -92,6 +92,19 @@ def get_default_journals() -> list[dict]:
     return loaded if loaded is not None else _BUILTIN_JOURNAL_ROWS
 
 
+def preset_ok() -> bool:
+    """内置清单此刻能否作为同步权威(store._sync_journal_modes 前置)。
+
+    无 preset 文件 → True(内置即权威);文件存在但解析失败(编辑中/
+    损坏)→ False:回退的内置值不该写进库(第13轮 P3-9)。
+    """
+    from ..queries import _preset_files
+
+    if _preset_files() is None:
+        return True
+    return _load_preset_journals() is not None
+
+
 def suggest_mode(count_90d: int) -> str:
     """按实测 90 天发文量自动建议模式(≤300 → full)。"""
     return "full" if count_90d <= MODE_FULL_THRESHOLD else "filter"
@@ -241,16 +254,19 @@ def backfill_journal(
     return n
 
 
-def audit_modes(conn, mailto: str | None = None) -> list[dict]:
+def audit_modes(conn, mailto: str | None = None,
+                progress=None) -> list[dict]:
     """逐刊实测 90 天发文量,给出当前模式与建议模式的差异(P1-7)。
 
     mismatch=True 表示当前模式与 suggest_mode 建议不一致。
     每刊一次网络请求(约 32 次 × 1s),供 CLI `journals` 与 GUI 批量校验。
+    progress(done, total) 每刊回调——32 次串行要几分钟,GUI 必须有进度(P2-3)。
     """
+    rows = conn.execute(
+        "SELECT name, issn, mode, enabled FROM journal_subscriptions"
+        " ORDER BY id").fetchall()
     out = []
-    for r in conn.execute(
-        "SELECT name, issn, mode, enabled FROM journal_subscriptions ORDER BY id"
-    ).fetchall():
+    for i, r in enumerate(rows):
         try:
             count = crossref.count_recent(r["issn"], mailto=mailto)
         except Exception:
@@ -261,6 +277,8 @@ def audit_modes(conn, mailto: str | None = None) -> list[dict]:
             enabled=bool(r["enabled"]), count_90d=count, suggested=suggested,
             mismatch=(suggested is not None and suggested != r["mode"]),
         ))
+        if progress:
+            progress(i + 1, len(rows))
     return out
 
 
@@ -295,10 +313,12 @@ def import_subscriptions(conn, data: dict) -> int:
             continue  # P2-2:嵌套元素非对象跳过,不崩
         if not (r.get("name") and r.get("issn")) or r["issn"] in existing:
             continue
+        # mode_user_set=1(第13轮 P2-1b):文件里的 mode 是用户带来的意图,
+        # 不随预设启动同步被改回
         conn.execute(
             "INSERT INTO journal_subscriptions"
-            " (name, issn, mode, route, enabled, added_at)"
-            " VALUES (?,?,?,'',1,datetime('now','localtime'))",
+            " (name, issn, mode, route, enabled, added_at, mode_user_set)"
+            " VALUES (?,?,?,'',1,datetime('now','localtime'),1)",
             (r["name"], r["issn"], r.get("mode", "filter")))
         existing.add(r["issn"])
         added += 1

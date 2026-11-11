@@ -28,6 +28,8 @@ def main(argv=None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "scan":
+        if args.llm_regen and not args.llm:  # 第13轮 P2-4:静默无效不如报错
+            parser.error("--llm-regen 需与 --llm 连用")
         setup_logging()
         from datetime import date as _date
 

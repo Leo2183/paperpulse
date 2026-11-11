@@ -944,8 +944,8 @@ def test_batch_regen_includes_cached_digests(win, monkeypatch):
     assert "10.32/cached" in got and "10.32/fresh" in got
     assert all(v is None for v in got.values()), "重生成必须置 None 让 batch 重调"
 
-    # >30 篇触发确认;点「否」不得启动
-    for i in range(31):
+    # >50 篇触发统一确认(附录 P2-5);点「否」不得启动
+    for i in range(51):
         st.upsert_paper(win.conn, _mk_paper(
             f"10.32/bulk{i}", first_seen=today + "T09:00:00"))
     built.clear()
@@ -1032,9 +1032,11 @@ def test_digest_done_negative_fail_restores_button(win, monkeypatch):
         staticmethod(lambda *a, **k: warned.append(a)))
     sv = win.scan_view
     sv.btn_digest.setEnabled(False)
+    sv.c_regen.setChecked(True)
     sv._digest_done(0, -1)
     assert sv.btn_digest.isEnabled()
     assert sv.digest_status.text() == "异常终止"
+    assert not sv.c_regen.isChecked(), "跑完必须复位重生成勾选(附录 P3-12)"
     assert warned
 
 
@@ -1063,6 +1065,11 @@ def test_audit_backfill_matches_issn_after_delete(win, monkeypatch):
             @staticmethod
             def connect(fn):
                 LateWorker._cb = fn
+
+        class progress:
+            @staticmethod
+            def connect(fn):
+                pass
 
         @staticmethod
         def isRunning():
@@ -1108,3 +1115,45 @@ def test_search_like_wildcards_escaped(win):
     lv.reload()
     assert lv.table.rowCount() == 0
     lv.f_title.setText("")
+
+
+
+def test_close_event_blocks_while_workers_alive(win, monkeypatch):
+    """P1-1:后台线程未收尾完 → 拒绝关闭;全部退出 → 放行。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    from paperpulse.gui import workers as w_mod
+
+    from PySide6.QtGui import QCloseEvent
+
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(w_mod, "shutdown", lambda timeout_ms=0: False)
+    ev = QCloseEvent()
+    win.closeEvent(ev)
+    assert not ev.isAccepted(), "worker 仍在跑时必须拒绝关窗(而不是 abort)"
+
+    monkeypatch.setattr(w_mod, "shutdown", lambda timeout_ms=0: True)
+    ev2 = QCloseEvent()
+    win.closeEvent(ev2)
+    assert ev2.isAccepted()
+
+
+def test_digest_worker_survives_init_db_failure(qapp, tmp_path, monkeypatch):
+    """P2-2:连接/初始化失败也必须发 done(0,-1),按钮不永久禁用。"""
+    from paperpulse import config, store as st
+    from paperpulse.gui import scan_view as sv_mod
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+
+    def boom(conn):
+        raise RuntimeError("db is locked")
+
+    monkeypatch.setattr(st, "init_db", boom)
+    results = []
+    w = sv_mod.DigestWorker(
+        [{"id": "x", "title": "T", "abstract": "a", "llm_digest": None}],
+        dict(llm_base_url="https://x/v4", llm_model="m", llm_api_key="k"))
+    w.done.connect(lambda ok, fail: results.append((ok, fail)))
+    w.run()  # 同步执行
+    assert results == [(0, -1)], "init_db 失败也必须以 (0,-1) 收尾"

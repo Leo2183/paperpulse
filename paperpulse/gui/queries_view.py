@@ -4,6 +4,7 @@
 """
 
 import json
+import logging
 
 from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -15,7 +16,10 @@ from PySide6.QtWidgets import (
 
 from .. import config, llm, store
 from ..sources import crossref, journals
+from . import workers
 from .workers import FnWorker  # noqa: F401  (模块级名保留:测试 monkeypatch 挂这里)
+
+log = logging.getLogger(__name__)
 
 
 class TestGroupWorker(QThread):
@@ -47,9 +51,10 @@ class TestGroupWorker(QThread):
 
 
 class AuditWorker(QThread):
-    """「校验全部刊模式」:后台跑 audit_modes,完成回报行列表。"""
+    """「校验全部刊模式」:后台跑 audit_modes,逐刊回报进度(P2-3)。"""
 
     done = Signal(object)
+    progress = Signal(int, int)
 
     def __init__(self):
         super().__init__()
@@ -57,14 +62,18 @@ class AuditWorker(QThread):
     def run(self):
         from .. import store as store_mod
 
-        conn = store_mod.connect()
-        store_mod.init_db(conn)
+        conn = None
         try:
-            self.done.emit(journals.audit_modes(conn))
+            conn = store_mod.connect()
+            store_mod.init_db(conn)  # P2-2:初始化失败也必须收尾发 done
+            self.done.emit(journals.audit_modes(
+                conn, progress=lambda i, n: self.progress.emit(i, n)))
         except Exception as e:  # noqa: BLE001
+            log.exception("audit worker failed")
             self.done.emit(e)
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
 
 class NewJournalWorker(QThread):
@@ -79,17 +88,19 @@ class NewJournalWorker(QThread):
         self.title, self.issn = title, issn
 
     def run(self):
-        conn = store.connect()
-        store.init_db(conn)
+        conn = None
         try:
+            conn = store.connect()
+            store.init_db(conn)  # P2-2:初始化失败也要走统一收尾
             n = self._run_inner(conn)
         except Exception as e:  # P2-4:失败必须收尾,界面不得永久卡住
+            log.exception("add-journal worker failed")
             try:
                 self.stage.emit(f"添加/回填失败:{e};已撤销订阅行,可重试")
             except RuntimeError:
                 pass
             jid = getattr(self, "_inserted_jid", None)
-            if jid is not None:  # P2-3:删半成品订阅,重复添加可重试
+            if conn is not None and jid is not None:  # P2-3:删半成品订阅
                 try:
                     conn.execute(
                         "DELETE FROM journal_subscriptions WHERE id=?", (jid,))
@@ -107,7 +118,8 @@ class NewJournalWorker(QThread):
                 self._inserted_jid = None
             n = 0
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
             self.done.emit(n)
 
     def _run_inner(self, conn) -> int:
@@ -128,8 +140,9 @@ class NewJournalWorker(QThread):
         mode = journals.suggest_mode(count) if count >= 0 else "filter"
         cur = conn.execute(
             "INSERT INTO journal_subscriptions (name, issn, mode, route,"
-            " enabled, added_at) VALUES (?,?,?,'',1,datetime('now','localtime'))",
-            (self.title, self.issn, mode))
+            " enabled, added_at, mode_user_set)"
+            " VALUES (?,?,?,'',1,datetime('now','localtime'),1)",
+            (self.title, self.issn, mode))  # P2-1c:加刊即用户意图,不受预设同步覆盖
         conn.commit()
         jid = cur.lastrowid
         self._inserted_jid = jid  # 失败时由 run() 回滚(P2-3)
@@ -177,7 +190,7 @@ class QueriesView(QWidget):
         worker = FnWorker(job)
         worker.done.connect(done_cb)
         self._bg_workers[key] = worker
-        worker.start()
+        workers.start(worker)
         return True
 
     def __init__(self, conn, parent_window: QMainWindow | None = None):
@@ -380,7 +393,7 @@ class QueriesView(QWidget):
                        self.j_status.setText(
                            self.j_status.text() if "失败" in self.j_status.text()
                            else f"回填完成,新增 {n} 篇")))
-        self._worker.start()
+        workers.start(self._worker)
 
     def _cancel_backfill(self) -> None:
         if self._worker and self._worker.isRunning():
@@ -450,7 +463,7 @@ class QueriesView(QWidget):
             self.g_status.setText("")
 
         self._tg_worker.done.connect(_show)
-        self._tg_worker.start()
+        workers.start(self._tg_worker)
 
     def _audit_modes(self) -> None:
         w = self._bg_workers.get("audit")
@@ -459,6 +472,8 @@ class QueriesView(QWidget):
             return
         self.j_status.setText("校验中(约 32 次请求)…")
         audit_worker = AuditWorker()
+        audit_worker.progress.connect(  # P2-3:逐刊进度,不再 8 分钟一动不动
+            lambda i, n: self.j_status.setText(f"校验中…{i}/{n}"))
 
         def _show(rows):
             self.j_status.setText("")
@@ -486,7 +501,7 @@ class QueriesView(QWidget):
 
         audit_worker.done.connect(_show)
         self._bg_workers["audit"] = audit_worker  # 不自毁,守卫替换(P1-1)
-        audit_worker.start()
+        workers.start(audit_worker)
 
     def _export_subs(self) -> None:
         from PySide6.QtWidgets import QFileDialog

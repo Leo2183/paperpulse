@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QMessageBox
 
 from .. import llm, store
+from . import workers
 from .workers import FnWorker  # noqa: F401  (模块级名保留:测试 monkeypatch 挂这里)
 
 COLUMNS = ["日期", "标题", "期刊", "来源", "标签", "旗标"]
@@ -146,7 +147,8 @@ class PaperListView(QWidget):
             params.append(self.f_status.currentText())
         tag = self.f_tag.currentText()
         if tag != "全部标签":
-            where.append("tags LIKE ?")
+            # 标签集是代码常量(无通配符),ESCAPE 与标题/导读口径一致(P3-7)
+            where.append("tags LIKE ? ESCAPE '\\'")
             params.append(f'%"{tag}"%')
         if self.c_starred.isChecked():
             where.append("starred = 1")
@@ -380,7 +382,7 @@ class PaperListView(QWidget):
 
         self._digest_test_worker = FnWorker(job)  # 调度执行(修复:此前从未启动)
         self._digest_test_worker.done.connect(done)
-        self._digest_test_worker.start()
+        workers.start(self._digest_test_worker)
 
     def _apply_digest(self, pid: str, text: str) -> None:
         self.conn.execute(
@@ -421,14 +423,16 @@ class PaperListView(QWidget):
             done = Signal(int, int)
 
             def run(self):
-                conn2 = store.connect()
-                store.init_db(conn2)
+                conn2 = None
                 try:
+                    conn2 = store.connect()
+                    store.init_db(conn2)  # P2-2:初始化失败也必须收尾
                     okk, faill = llm.batch_digest(conn2, [dict(r)], cfg)
                 except Exception:  # P2-1:任何异常都收尾,按钮不永久禁用
                     okk, faill = 0, 1
                 finally:
-                    conn2.close()
+                    if conn2 is not None:
+                        conn2.close()
                 self.done.emit(okk, faill)
 
         self._digest_thread = _OneDigest()
@@ -443,4 +447,4 @@ class PaperListView(QWidget):
 
         self.btn_digest.setEnabled(False)
         self._digest_thread.done.connect(_fin)
-        self._digest_thread.start()
+        workers.start(self._digest_thread)

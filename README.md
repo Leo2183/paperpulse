@@ -19,7 +19,7 @@
 ```bat
 git clone https://github.com/Leo2183/paperpulse.git && cd paperpulse
 pip install -e .[dev]
-pytest                       # 177 用例,离线
+pytest                       # 186 用例,离线
 ```
 
 > 注册任务计划前必须 `pip install -e .`——否则任务计划里 `import paperpulse` 静默失败(pythonw 无控制台)。
@@ -31,7 +31,7 @@ pytest                       # 177 用例,离线
 | `python -m paperpulse scan --dry-run` | 打印三轨请求串与窗口,不落库 |
 | `python -m paperpulse scan` | 三轨扫描入库并生成当日日报 |
 | `python -m paperpulse scan --days 40 --llm` | 扩大窗口 + 批量中文导读(需先配置 LLM) |
-| `python -m paperpulse scan --llm --llm-regen` | 已有导读也按当前提示词重新生成(失败保留旧值) |
+| `python -m paperpulse scan --llm --llm-regen` | 已有导读也按当前提示词重新生成(默认当天;配合 `--days N` 扩大范围,失败保留旧值) |
 | `python -m paperpulse journals` | 逐刊审计 90 天实测发文量 vs 当前模式(约 32 次请求) |
 | `python -m paperpulse gui` | 四视图 GUI |
 | `python -m paperpulse report --date 2026-11-07` | 重生成某日日报 |
@@ -53,7 +53,7 @@ pytest                       # 177 用例,离线
 
 ## LLM 中文导读(可选,默认关)
 
-GUI → 检索式配置 → 源与 LLM:**供应商下拉**(智谱 GLM/Coding Plan、DeepSeek、OpenAI、Kimi、通义、SiliconFlow、火山方舟、xAI、Gemini 兼容、Groq、本地 Ollama/LM Studio、自定义)自动填 `base_url`;填 `api_key` 后**「获取模型列表」**直接拉取可用模型下拉选择(GLM、DeepSeek、Ollama 均可;base_url 填到 `/v4` 或 `/v4/chat/completions` 皆可)。key 经 Windows DPAPI 加密存本机(拷走 db 到他机不可解)。已有导读持久缓存不重调;无摘要论文自动跳过。改完提示词后可在扫描中心勾选**「含已有导读(按当前提示词重生成)」**批量重生成(失败保留旧导读);论文列表搜索框支持**按标题/导读/两者**搜索,并带「新」徽标与「仅看新增」筛选(上次打开 GUI 后新入库的论文标「新」)。
+GUI → 检索式配置 → 源与 LLM:**供应商下拉**(智谱 GLM/Coding Plan、DeepSeek、OpenAI、Kimi、通义、SiliconFlow、火山方舟、xAI、Gemini 兼容、Groq、本地 Ollama/LM Studio、自定义)自动填 `base_url`;填 `api_key` 后**「获取模型列表」**直接拉取可用模型下拉选择(GLM、DeepSeek、Ollama 均可;base_url 填到 `/v4` 或 `/v4/chat/completions` 皆可)。key 经 Windows DPAPI 加密存本机(拷走 db 到他机不可解)。已有导读持久缓存不重调;无摘要论文自动跳过。改完提示词后可在扫描中心勾选**「含已有导读(按当前提示词重生成)」**批量重生成(失败保留旧导读;超过 50 篇会先确认);论文列表搜索框支持**按标题/导读/两者**搜索,并带「新」徽标与「仅看新增」筛选(上次打开 GUI 后新入库的论文标「新」;升级前的存量论文不标,属预期)。
 
 ## 打包
 
@@ -71,7 +71,7 @@ python build.py
 ## 设计与质量
 
 - 设计文档(五轮评审):`docs/superpowers/specs/`;实现评审:`审查报告/`
-- 177 个离线测试(fixture 采用真实 API 录制 + 字段契约断言),GUI offscreen 冒烟
+- 186 个离线测试(fixture 采用真实 API 录制 + 字段契约断言),GUI offscreen 冒烟
 
 ## License
 

@@ -197,7 +197,7 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
             per_source["biorxiv"] = {"disabled": True}
 
         if llm:
-            _run_llm_digest(conn, settings, started, regen=llm_regen)
+            _run_llm_digest(conn, settings, started, regen=llm_regen, days=days)
 
         if enabled_tracks and failed_tracks == enabled_tracks:
             status = "failed"  # 全部启用轨道失败
@@ -225,11 +225,13 @@ def run_scan(conn=None, *, dry_run: bool = False, llm: bool = False,
 
 
 def _run_llm_digest(conn, settings: dict, started: str,
-                    regen: bool = False) -> None:
+                    regen: bool = False, days: int | None = None) -> None:
     """--llm 路径(spec §8):对本次 run 新增的未读论文批量导读。
 
     regen=True(--llm-regen):已有导读的也按当前提示词重新生成,
     失败保留旧值(与 GUI 批量重生成同语义,第12轮 P3-9)。
+    regen+days(第13轮 P2-4):范围从"当天新增"扩为"--days N 天内",
+    支持改完提示词后的长范围/全库刷新;不传 days 仍只刷当天。
     """
     from . import llm as llm_mod
 
@@ -250,10 +252,14 @@ def _run_llm_digest(conn, settings: dict, started: str,
     where = "status='unread' AND abstract IS NOT NULL"
     if not regen:
         where += " AND llm_digest IS NULL"
+    if regen and days:
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        date_cond, param = "substr(first_seen,1,10)>=?", cutoff
+    else:
+        date_cond, param = "substr(first_seen,1,10)=substr(?,1,10)", started
     papers = [dict(r) for r in conn.execute(
         "SELECT id, title, abstract, llm_digest FROM papers"
-        f" WHERE {where}"
-        " AND substr(first_seen,1,10)=substr(?,1,10)", (started,))]
+        f" WHERE {where} AND {date_cond}", (param,))]
     if regen and papers:
         papers = [dict(r, llm_digest=None) for r in papers]  # 失败保旧
     if not papers:

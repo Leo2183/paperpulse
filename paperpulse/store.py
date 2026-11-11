@@ -232,6 +232,18 @@ def _migrate_v4(conn) -> None:
         conn.execute(
             "ALTER TABLE journal_subscriptions"
             " ADD COLUMN mode_user_set INTEGER DEFAULT 0")
+        # P2-1a:升级瞬间是唯一能区分用户意图的时机——现值 ≠ 预设值
+        # 的行视为手动改过,保护起来,避免紧随其后的启动同步覆盖
+        from .sources.journals import get_default_journals
+
+        marked = 0
+        for r in get_default_journals():
+            cur = conn.execute(
+                "UPDATE journal_subscriptions SET mode_user_set=1"
+                " WHERE issn=? AND mode!=?", (r["issn"], r["mode"]))
+            marked += cur.rowcount
+        if marked:
+            log.info("v4: protected %d user-customized journal modes", marked)
     pcols = {r["name"] for r in conn.execute(
         "SELECT name FROM pragma_table_info('papers')")}
     if "added_at" not in pcols:
@@ -246,10 +258,15 @@ def _sync_journal_modes(conn) -> None:
     模式——今后预设再改 mode 无需新迁移);用户在 GUI 切换过的刊
     (mode_user_set=1)永不被覆盖。
     """
-    from .sources.journals import get_default_journals
+    from .sources import journals as _j
 
+    if not _j.preset_ok():
+        # preset 文件存在但解析失败(正在编辑等):回退的内置清单不是
+        # 权威,不能写库(第13轮 P3-9)
+        log.warning("preset unreadable; journal mode sync skipped")
+        return
     changed = []
-    for r in get_default_journals():
+    for r in _j.get_default_journals():
         cur = conn.execute(
             "UPDATE journal_subscriptions SET mode=?"
             " WHERE issn=? AND mode!=? AND COALESCE(mode_user_set,0)=0",
@@ -389,16 +406,18 @@ def save_setting(conn, key: str, value: str) -> None:
     _with_lock_retry(_do)  # P3-1:防抖槽/设置页并发写时不再裸抛 locked
 
 
-def advance_papers_seen(conn) -> str | None:
+def advance_papers_seen(conn) -> str:
     """「新」徽标基线:返回上次的 papers_seen_at 旧值,并写入当前时刻。
 
     GUI 每次启动调用一次——本次会话以旧值为界判定"新增",
     会话内后台扫描新入库的论文持续标「新」,下次打开重新起算。
-    首次(无旧值)返回 None:没有参照,不显示「新」。
+    首次(无旧值)返回本次启动时刻(第13轮 P3-2):首会话内扫描/
+    回填进来的论文也能标「新」,不必等第二次打开。
     """
     row = conn.execute(
         "SELECT value FROM settings WHERE key='papers_seen_at'"
     ).fetchone()
     prev = row["value"] if row else None
-    save_setting(conn, "papers_seen_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
-    return prev
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    save_setting(conn, "papers_seen_at", now)
+    return prev or now

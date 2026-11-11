@@ -336,3 +336,29 @@ def test_llm_regen_includes_cached_and_nulls(conn, monkeypatch):
     got = {p["id"]: p.get("llm_digest") for p in captured["rows"]}
     assert set(got) == {"10.50/a", "10.50/b"}, "regen 必须包含已有导读的论文"
     assert all(v is None for v in got.values())
+
+
+def test_llm_regen_days_extends_range(conn, monkeypatch):
+    """第13轮 P2-4:--llm-regen --days N 覆盖 N 天内论文,而非仅当天。"""
+    store.save_setting(conn, "llm_base_url", "https://x/v4")
+    store.save_setting(conn, "llm_model", "m")
+    monkeypatch.setattr(
+        "paperpulse.sources.europepmc.search",
+        lambda q, a, b, page_size=100: iter([]))
+    store.upsert_paper(conn, _paper(
+        "10.60/old", "Old cached", llm_digest="旧导读",
+        first_seen="2026-10-01T09:00:00"))
+    captured = {}
+
+    def fake_batch(c, papers, cfg, progress=None):
+        captured["rows"] = papers
+        return 0, 0
+
+    monkeypatch.setattr("paperpulse.llm.batch_digest", fake_batch)
+    # 不带 days:老论文不入选(当天窗口)
+    engine.run_scan(conn=conn, llm=True, llm_regen=True)
+    assert "10.60/old" not in {p["id"] for p in captured.get("rows", [])}
+    # --days 60:老论文入选并置 None
+    engine.run_scan(conn=conn, llm=True, llm_regen=True, days=60)
+    got = {p["id"]: p.get("llm_digest") for p in captured["rows"]}
+    assert got.get("10.60/old") is None

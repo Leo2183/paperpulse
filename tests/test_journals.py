@@ -183,6 +183,31 @@ def test_food_chem_x_is_filter():
     assert fc["mode"] == "filter"
 
 
+def test_audit_modes_reports_progress(conn, monkeypatch):
+    """第13轮 P2-3:逐刊进度回调(1..n / n)。"""
+    store.seed_journals(conn, [
+        dict(name="A", issn="1111-0001", mode="filter"),
+        dict(name="B", issn="1111-0002", mode="full"),
+    ])
+    seen = []
+    monkeypatch.setattr(journals.crossref, "count_recent", lambda *a, **k: 10)
+    out = journals.audit_modes(conn, progress=lambda i, n: seen.append((i, n)))
+    assert seen == [(1, 2), (2, 2)]
+    assert len(out) == 2
+
+
+def test_import_marks_mode_user_set(conn):
+    """第13轮 P2-1b:导入的 mode 是用户意图,启动同步不得改回。"""
+    added = journals.import_subscriptions(conn, {"journals": [
+        {"name": "Nature", "issn": "0028-0836", "mode": "full"}]})
+    assert added == 1
+    store.init_db(conn)  # 触发启动同步
+    row = conn.execute(
+        "SELECT mode, mode_user_set FROM journal_subscriptions"
+        " WHERE issn='0028-0836'").fetchone()
+    assert (row["mode"], row["mode_user_set"]) == ("full", 1)
+
+
 def test_audit_modes_reports_mismatch(monkeypatch, conn):
     monkeypatch.setattr(
         journals.crossref, "count_recent",

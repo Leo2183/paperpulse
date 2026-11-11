@@ -267,6 +267,57 @@ def test_migration_v3_syncs_builtin_journal_modes(tmp_path, monkeypatch):
     assert modes["2590-1575"] == "filter"
 
 
+def test_migration_v4_protects_user_modified_modes(tmp_path, monkeypatch):
+    """第13轮 P2-1a:v3 库升级时,"现值≠预设"的刊被标 mode_user_set=1,
+    随后的启动同步不得把它改回预设值。"""
+    from paperpulse import config
+
+    monkeypatch.setattr(config, "ROOT", tmp_path)  # presets 缺失→内置权威
+    import sqlite3
+
+    db = tmp_path / "data" / "scan.db"
+    db.parent.mkdir()
+    raw = sqlite3.connect(db)
+    raw.executescript("""
+    CREATE TABLE papers (id TEXT PRIMARY KEY, doi TEXT, pmcid TEXT,
+      title TEXT NOT NULL, authors TEXT, journal TEXT, pub_date TEXT,
+      indexed_date TEXT, source TEXT NOT NULL, sources TEXT DEFAULT '[]',
+      subscription TEXT, url TEXT, abstract TEXT, tags TEXT DEFAULT '[]',
+      matched_groups TEXT DEFAULT '[]', status TEXT DEFAULT 'unread',
+      starred INTEGER DEFAULT 0, to_read INTEGER DEFAULT 0,
+      llm_digest TEXT, first_seen TEXT NOT NULL, updated_at TEXT,
+      stale INTEGER DEFAULT 0);
+    CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    CREATE TABLE term_groups (id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL, enabled INTEGER DEFAULT 1,
+      terms TEXT NOT NULL, refine TEXT NOT NULL);
+    CREATE TABLE journal_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL, issn TEXT NOT NULL, mode TEXT NOT NULL,
+      route TEXT NOT NULL, enabled INTEGER DEFAULT 1, added_at TEXT);
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+    INSERT INTO settings VALUES ('schema_version','3');
+    INSERT INTO journal_subscriptions (name, issn, mode, route) VALUES
+      ('Nature', '0028-0836', 'full', ''),
+      ('Food Chemistry: X', '2590-1575', 'full', '');
+    """)
+    raw.commit()
+    raw.close()
+    c = store.connect()
+    store.init_db(c)  # v3 → v4:加列 + 标记 + 启动同步
+    rows = {r["issn"]: (r["mode"], r["mode_user_set"]) for r in c.execute(
+        "SELECT issn, mode, mode_user_set FROM journal_subscriptions")}
+    # 用户把 Nature 改成 full(≠预设 filter):升级即保护,不被改回
+    assert rows["0028-0836"] == ("full", 1)
+    # FCX 的 full 是旧内置错误值(预设已修 filter):视为用户值一并保护,
+    # 不再静默纠偏——宁可保守,语义以用户库为准
+    assert rows["2590-1575"] == ("full", 1)
+    assert store.load_settings(c)["schema_version"] == "4"
+    store.init_db(c)  # 幂等
+    rows2 = {r["issn"]: r["mode"] for r in c.execute(
+        "SELECT issn, mode FROM journal_subscriptions")}
+    assert rows2["0028-0836"] == "full"
+
+
 def test_journal_mode_sync_respects_user_set(tmp_path, monkeypatch):
     """v4(第12轮 P2-2):预设 mode 修正只同步未手动改过的刊。
 
@@ -298,8 +349,8 @@ def test_advance_papers_seen_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ROOT", tmp_path)
     c = store.connect()
     store.init_db(c)
-    assert store.advance_papers_seen(c) is None  # 首次无参照
-    first = store.load_settings(c)["papers_seen_at"]
+    first = store.advance_papers_seen(c)
+    assert first  # 首次无历史基线 → 返回本次启动时刻(第13轮 P3-2)
     second = store.advance_papers_seen(c)
-    assert second == first and second  # 返回旧值
+    assert second == first and second  # 第二次返回旧值
     assert store.load_settings(c)["papers_seen_at"] >= second  # 已推进
